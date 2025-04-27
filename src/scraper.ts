@@ -19,6 +19,7 @@ import {
     homeUrl,
 } from "./utils.js";
 import { extractFormCredentials } from "./utils.js";
+import { handleAjaxFlow } from "./utils.js";
 
 async function makeRequestAndSaveCredentials(
     url: string,
@@ -245,88 +246,82 @@ async function flowAccept(searchQuery: string) {
 
 async function flowAjax1(searchQuery: string) {
     try {
-        // Get credentials - either load existing or fetch new ones
-        const credentials = await loadCredentials();
-        let cookies = credentials?.[searchPage]?.cookies;
-
-        if (!cookies) {
-            console.log("No existing cookies found, fetching new ones...");
-            cookies = await getInitialCookies();
-        }
-
-        const formCredentials = credentials?.[searchPage]?.formData;
-
-        // Create FormData instance
-        const formData = new FormData();
-        formData.append("p_flow_id", formCredentials?.flowId || "");
-        formData.append("p_flow_step_id", formCredentials?.flowStepId || "");
-        formData.append("p_instance", formCredentials?.instance || "");
-        formData.append("p_debug", "");
-        formData.append(
-            "p_request",
-            `PLUGIN=${formCredentials?.ajaxIdentifiers?.[`P${formCredentials?.flowStepId}_FOOTER`]}`
-        );
-
-        // Prepare the JSON payload
-        const jsonPayload = {
-            pageItems: {
-                itemsToSubmit: [
-                    {
-                        n: `P${formCredentials?.flowStepId}_FOOTER`,
-                        v: "",
-                    },
-                    {
-                        n: `P${formCredentials?.flowStepId}_FOOTER_1`,
-                        v: "",
-                    },
-                ],
-                protected: formCredentials?.pPageItemsProtected,
-                rowVersion: "",
-                formRegionChecksums: [],
-            },
-            salt: formCredentials?.salt,
-        };
-
-        formData.append("p_json", JSON.stringify(jsonPayload));
-        console.log("jsonPayload: ", jsonPayload);
-
-        const ajaxResponse = await axios.post(
-            `${ajaxUrl}${formCredentials?.instance}`,
-            formData,
-            {
-                headers: {
-                    ...COMMON_HEADERS,
-                    ...POST_HEADERS,
-                    ...formData.getHeaders(),
-                    Referer: baseUrl,
-                    Cookie: cookies,
+        const response = await handleAjaxFlow({
+            getElement: (flowStepId) => `P${flowStepId}_FOOTER`,
+            getAdditionalItems: (flowStepId) => [
+                {
+                    name: `P${flowStepId}_FOOTER`,
+                    value: "",
                 },
-                maxRedirects: 5,
-            }
-        );
+                {
+                    name: `P${flowStepId}_FOOTER_1`,
+                    value: "",
+                },
+            ],
+        });
 
-        // Save the response data using the new utility functions
-        await writeJsonFile(
-            FILE_DIR_PREFIX + "response_ajax.json",
-            ajaxResponse.data
-        );
+        // Save the response data
+        await writeJsonFile(FILE_DIR_PREFIX + "response_ajax1.json", response);
+        console.log("Data has been successfully fetched and saved");
 
-        console.log(
-            "Data has been successfully fetched and saved",
-            ajaxResponse
-        );
-
-        return ajaxResponse.data;
+        return response;
     } catch (error) {
-        if (axios.isAxiosError(error)) {
-            console.error("Axios error:", error.message);
-            if (error.response) {
-                console.error("Response status:", error.response.status);
-                console.error("Response data:", error.response.data);
-            }
-        } else {
-            console.error("Error:", error);
-        }
+        console.error("Error in flowAjax1:", error);
+        throw error;
+    }
+}
+
+async function flowAjax2(searchQuery: string) {
+    try {
+        const response = await handleAjaxFlow({
+            searchQuery,
+            getElement: (flowStepId) => `P${flowStepId}_SINGLE_SEARCH`,
+            getAdditionalItems: (flowStepId) => [
+                {
+                    name: `P${flowStepId}_SINGLE_SEARCH`,
+                    value: searchQuery,
+                },
+                {
+                    name: `P${flowStepId}_SINGLE_SEARCH_1`,
+                    value: "",
+                },
+            ],
+        });
+
+        // Save the response data
+        await writeJsonFile(FILE_DIR_PREFIX + "response_ajax2.json", response);
+        console.log("Data has been successfully fetched and saved");
+
+        return response;
+    } catch (error) {
+        console.error("Error in flowAjax2:", error);
+        throw error;
+    }
+}
+
+async function flowAjax3(searchQuery: string) {
+    try {
+        const response = await handleAjaxFlow({
+            getElement: (flowStepId) => `P${flowStepId}_FOOTER`,
+            getAdditionalItems: (flowStepId) => [
+                {
+                    name: `P${flowStepId}_FOOTER`,
+                    value: "",
+                },
+                {
+                    name: `P${flowStepId}_FOOTER_2`,
+                    value: "",
+                },
+            ],
+        });
+
+        // Save the response data
+        await writeJsonFile(FILE_DIR_PREFIX + "response_ajax3.json", response);
+        console.log("Data has been successfully fetched and saved");
+
+        return response;
+    } catch (error) {
+        console.error("Error in flowAjax1:", error);
         throw error;
     }
 }
@@ -366,7 +361,10 @@ async function flowAjaxFinal(searchQuery: string) {
             ],
             pageItems: {
                 itemsToSubmit: [
-                    { n: `P${formCredentials?.flowStepId}_SINGLE_SEARCH`, v: searchQuery },
+                    {
+                        n: `P${formCredentials?.flowStepId}_SINGLE_SEARCH`,
+                        v: searchQuery,
+                    },
                     { n: `P${formCredentials?.flowStepId}_FOOTER`, v: "" },
                 ],
                 protected: formCredentials?.pPageItemsProtected,
@@ -377,7 +375,6 @@ async function flowAjaxFinal(searchQuery: string) {
         };
 
         formData.append("p_json", JSON.stringify(jsonPayload));
-        // console.log("jsonPayload: ", jsonPayload);
 
         const ajaxResponse = await axios.post(
             `${ajaxUrl}${formCredentials?.instance}`,
@@ -400,9 +397,7 @@ async function flowAjaxFinal(searchQuery: string) {
             ajaxResponse.data
         );
 
-        console.log(
-            "Data has been successfully fetched and saved"
-        );
+        console.log("Data has been successfully fetched and saved");
 
         return ajaxResponse.data;
     } catch (error) {
@@ -435,13 +430,14 @@ if (result?.redirectURL) {
     );
 }
 
-
 const resultAjax1 = await flowAjax1(searchQuery);
 console.log("resultAjax1: ", resultAjax1);
 
-// await new Promise(resolve => setTimeout(resolve, 30000));
-// const resultAjax2 = await flowAjax(searchQuery);
-// console.log("resultAjax2: ", resultAjax2);
+const resultAjax2 = await flowAjax2(searchQuery);
+console.log("resultAjax2: ", resultAjax2);
 
-// const resultAjax = await flowAjaxFinal(searchQuery);
-// console.log("resultAjax: ", resultAjax);
+const resultAjax3 = await flowAjax3(searchQuery);
+console.log("resultAjax3: ", resultAjax3);
+
+const resultAjax = await flowAjaxFinal(searchQuery);
+console.log("resultAjax: ", resultAjax);

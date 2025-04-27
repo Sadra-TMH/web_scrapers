@@ -2,6 +2,8 @@ import fs from "fs/promises";
 import * as cheerio from "cheerio";
 import { writeJsonFile } from "./fileUtils";
 import { FILE_DIR_PREFIX } from "./fileUtils";
+import axios from "axios";
+import FormData from "form-data";
 
 // URLs
 export const baseUrl = "https://rrk.ir";
@@ -222,4 +224,134 @@ function parseEncodedString(encodedString: string): string {
     console.error('Error parsing encoded string:', error);
     return encodedString; // Return original if parsing fails
   }
+}
+
+/**
+ * Common interface for AJAX request parameters
+ */
+export interface AjaxRequestParams {
+    searchQuery?: string;
+    getElement: (flowStepId: string) => string;
+    getAdditionalItems: (flowStepId: string) => Array<{
+        name: string;
+        value: string;
+    }>;
+}
+
+/**
+ * Handles common AJAX flow operations
+ */
+export async function handleAjaxFlow({
+    searchQuery = "",
+    getElement,
+    getAdditionalItems = () => []
+}: AjaxRequestParams) {
+    try {
+
+        // Get credentials - either load existing or fetch new ones
+        const credentials = await loadCredentials();
+        let cookies = credentials?.[searchPage]?.cookies;
+
+        if (!cookies) {
+            console.log("No existing cookies found, fetching new ones...");
+            cookies = await getInitialCookies();
+        }
+
+        const formCredentials = credentials?.[searchPage]?.formData;
+        if (!formCredentials) {
+            throw new Error("No form credentials found");
+        }
+        const elementId = getElement(formCredentials.flowStepId || "");
+        const additionalItems = getAdditionalItems(formCredentials.flowStepId || "");
+        // Create FormData instance
+        const formData = new FormData();
+        formData.append("p_flow_id", formCredentials.flowId || "");
+        formData.append("p_flow_step_id", formCredentials.flowStepId || "");
+        formData.append("p_instance", formCredentials.instance || "");
+        formData.append("p_debug", "");
+
+        const ajaxIdentifier = formCredentials.ajaxIdentifiers?.[elementId];
+        if (!ajaxIdentifier) {
+            throw new Error(`No AJAX identifier found for element: ${elementId}`);
+        }
+
+        formData.append("p_request", `PLUGIN=${ajaxIdentifier}`);
+
+        // Prepare the JSON payload
+        const itemsToSubmit = [
+            ...additionalItems,
+        ].map(item => ({
+            n: item.name,
+            v: item.value
+        }));
+
+        const jsonPayload = {
+            pageItems: {
+                itemsToSubmit,
+                protected: formCredentials.pPageItemsProtected,
+                rowVersion: "",
+                formRegionChecksums: [],
+            },
+            salt: formCredentials.salt,
+        };
+
+        formData.append("p_json", JSON.stringify(jsonPayload));
+
+        const ajaxResponse = await axios.post(
+            `${ajaxUrl}${formCredentials.instance}`,
+            formData,
+            {
+                headers: {
+                    ...COMMON_HEADERS,
+                    ...POST_HEADERS,
+                    ...formData.getHeaders(),
+                    Referer: baseUrl,
+                    Cookie: cookies,
+                },
+                maxRedirects: 5,
+            }
+        );
+
+        return ajaxResponse.data;
+    } catch (error) {
+        if (axios.isAxiosError(error)) {
+            console.error("Axios error:", error.message);
+            if (error.response) {
+                console.error("Response status:", error.response.status);
+                console.error("Response data:", error.response.data);
+            }
+        } else {
+            console.error("Error:", error);
+        }
+        throw error;
+    }
+}
+
+export async function loadCredentials(): Promise<Credentials> {
+    try {
+        const data = await fs.readFile(FILE_DIR_PREFIX + CREDENTIALS_FILE, 'utf-8');
+        return JSON.parse(data);
+    } catch (error) {
+        console.error('Error loading credentials:', error);
+        return {};
+    }
+}
+
+export async function getInitialCookies(): Promise<string> {
+    try {
+        const response = await axios.get(searchPage, {
+            headers: COMMON_HEADERS,
+            maxRedirects: 5,
+        });
+        
+        const cookies = response.headers['set-cookie'];
+        if (!cookies) {
+            throw new Error('No cookies received from server');
+        }
+        
+        return cookies.join('; ');
+    } catch (error) {
+        console.error('Error getting initial cookies:', error);
+        throw error;
+    }
 }
