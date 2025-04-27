@@ -7,7 +7,7 @@ import {
     writeJsonFile,
     saveCredentials,
     loadCredentials,
-} from "./fileUtils.js";
+} from "./utils/fileUtils.js";
 import {
     COMMON_HEADERS,
     POST_HEADERS,
@@ -17,9 +17,10 @@ import {
     searchUrl,
     ajaxUrl,
     homeUrl,
-} from "./utils.js";
-import { extractFormCredentials } from "./utils.js";
-import { handleAjaxFlow } from "./utils.js";
+} from "./utils/utils.js";
+import { extractFormCredentials } from "./utils/utils.js";
+import { handleAjaxFlow } from "./utils/utils.js";
+import fs from "fs/promises";
 
 async function makeRequestAndSaveCredentials(
     url: string,
@@ -110,7 +111,6 @@ async function flowAccept(searchQuery: string) {
     try {
         // Get credentials - either load existing or fetch new ones
         const credentials = await loadCredentials();
-        // console.log("loaded credentials: ", credentials);
         let cookies = credentials?.[searchPage]?.cookies;
 
         if (!cookies) {
@@ -119,21 +119,22 @@ async function flowAccept(searchQuery: string) {
         }
 
         const formCredentials = credentials?.[searchPage]?.formData;
+        if (!formCredentials) {
+            throw new Error("No form credentials found");
+        }
 
         // Create FormData instance
         const formData = new FormData();
-        formData.append("p_flow_id", formCredentials?.flowId);
-        formData.append("p_flow_step_id", formCredentials?.flowStepId);
-        formData.append("p_instance", formCredentials?.instance);
+        // Ensure all values are strings when appending to FormData
+        formData.append("p_flow_id", formCredentials.flowId || "");
+        formData.append("p_flow_step_id", formCredentials.flowStepId || "");
+        formData.append("p_instance", formCredentials.instance || "");
         formData.append("p_debug", "");
         formData.append("p_request", "SEARCH");
         formData.append("p_reload_on_submit", "S");
-        formData.append(
-            "p_page_submission_id",
-            formCredentials?.pageSubmissionId || ""
-        );
+        formData.append("p_page_submission_id", formCredentials.pageSubmissionId || "");
 
-        const flowStepId = formCredentials?.flowStepId;
+        const flowStepId = formCredentials.flowStepId || "";
         // Prepare the JSON payload
         const jsonPayload = {
             pageItems: {
@@ -142,8 +143,8 @@ async function flowAccept(searchQuery: string) {
                     { n: `P${flowStepId}_SINGLE_SEARCH_1`, v: "" },
                     {
                         n: "P0_CURRENT_PAGE_ID",
-                        v: formCredentials?.currentPageId?.value,
-                        ck: formCredentials?.currentPageId?.ck,
+                        v: formCredentials.currentPageId?.value || "",
+                        ck: formCredentials.currentPageId?.ck || "",
                     },
                     { n: `P${flowStepId}_FOOTER`, v: "" },
                     { n: `P${flowStepId}_FOOTER_1`, v: "" },
@@ -167,19 +168,19 @@ async function flowAccept(searchQuery: string) {
                     { n: `P${flowStepId}_NEWSPAPER_TA`, v: "" },
                     {
                         n: "P0_ORDER_ID",
-                        v: formCredentials?.orderId?.value,
-                        ck: formCredentials?.orderId?.ck,
+                        v: formCredentials.orderId?.value || "",
+                        ck: formCredentials.orderId?.ck || "",
                     },
-                    { n: "P0_ORDER_PRICE", v: "" },
-                    { n: "P0_BANNER", v: "" },
-                    { n: "P0_LINK_BANNER", v: "" },
+                    { n: "P0_ORDER_PRICE", v: formCredentials.orderPrice || "" },
+                    { n: "P0_BANNER", v: formCredentials.banner || "" },
+                    { n: "P0_LINK_BANNER", v: formCredentials.linkBanner || "" },
                     {
                         n: "P0_TOOLTIP_BANNER",
-                        v: formCredentials?.tooltipBanner?.value,
-                        ck: formCredentials?.tooltipBanner?.ck,
+                        v: formCredentials.tooltipBanner?.value || "",
+                        ck: formCredentials.tooltipBanner?.ck || "",
                     },
-                    { n: "P0_CURRENTDATE", v: "" },
-                    { n: "P0_MT", v: "" },
+                    { n: "P0_CURRENTDATE", v: formCredentials.currentDate || "" },
+                    { n: "P0_MT", v: formCredentials.mt || "" },
                     { n: `P${flowStepId}_CNT_RETURN_ROW`, v: "" },
                     { n: `P${flowStepId}_AMOUT_PER_ROW`, v: "50000" },
                     { n: `P${flowStepId}_TAX`, v: "10" },
@@ -193,17 +194,19 @@ async function flowAccept(searchQuery: string) {
                     { n: `P${flowStepId}_TYPEPAY`, v: "1" },
                     { n: `P${flowStepId}_TYPE`, v: "" },
                 ],
-                protected: formCredentials?.pPageItemsProtected,
+                protected: formCredentials.pPageItemsProtected || "",
                 rowVersion: "",
                 formRegionChecksums: [],
             },
-            salt: formCredentials?.salt,
+            salt: formCredentials.salt || "",
         };
 
-        formData.append("p_json", JSON.stringify(jsonPayload));
+        // Convert JSON to string before appending
+        const jsonString = JSON.stringify(jsonPayload);
+        formData.append("p_json", jsonString);
 
         const searchResponse = await axios.post(
-            `${searchUrl}${formCredentials?.instance}`,
+            `${searchUrl}${formCredentials.instance}`,
             formData,
             {
                 headers: {
@@ -216,17 +219,6 @@ async function flowAccept(searchQuery: string) {
                 maxRedirects: 5,
             }
         );
-
-        // Save the response data using the new utility functions
-        await writeJsonFile(
-            FILE_DIR_PREFIX + "response_search.json",
-            searchResponse.data
-        );
-        // await writeFile(
-        //     FILE_DIR_PREFIX + "response_search.html",
-        //     searchResponse.data
-        // );
-
         console.log("Data has been successfully fetched and saved");
 
         return searchResponse.data;
@@ -260,8 +252,7 @@ async function flowAjax1(searchQuery: string) {
             ],
         });
 
-        // Save the response data
-        await writeJsonFile(FILE_DIR_PREFIX + "response_ajax1.json", response);
+        // Create query folder and save response
         console.log("Data has been successfully fetched and saved");
 
         return response;
@@ -288,8 +279,7 @@ async function flowAjax2(searchQuery: string) {
             ],
         });
 
-        // Save the response data
-        await writeJsonFile(FILE_DIR_PREFIX + "response_ajax2.json", response);
+        // Create query folder and save response
         console.log("Data has been successfully fetched and saved");
 
         return response;
@@ -315,13 +305,12 @@ async function flowAjax3(searchQuery: string) {
             ],
         });
 
-        // Save the response data
-        await writeJsonFile(FILE_DIR_PREFIX + "response_ajax3.json", response);
+        // Create query folder and save response
         console.log("Data has been successfully fetched and saved");
 
         return response;
     } catch (error) {
-        console.error("Error in flowAjax1:", error);
+        console.error("Error in flowAjax3:", error);
         throw error;
     }
 }
@@ -356,7 +345,7 @@ async function flowAjaxFinal(searchQuery: string) {
                     ajaxColumns: formCredentials?.gridConfig?.ajaxColumns,
                     id: formCredentials?.gridConfig?.id,
                     ajaxIdentifier: formCredentials?.gridConfig?.ajaxIdentifier,
-                    fetchData: { version: 1, firstRow: 1, maxRows: 1000 },
+                    fetchData: { version: 1, firstRow: 1, maxRows: 100000 },
                 },
             ],
             pageItems: {
@@ -391,12 +380,7 @@ async function flowAjaxFinal(searchQuery: string) {
             }
         );
 
-        // Save the response data using the new utility functions
-        await writeJsonFile(
-            FILE_DIR_PREFIX + "response_ajax.json",
-            ajaxResponse.data
-        );
-
+        // Create query folder and save response
         console.log("Data has been successfully fetched and saved");
 
         return ajaxResponse.data;
@@ -413,31 +397,133 @@ async function flowAjaxFinal(searchQuery: string) {
         throw error;
     }
 }
-// Execute the function
-const searchQuery = "kk";
-const result = await flowAccept(searchQuery);
-console.log("result: ", result);
 
-if (result?.redirectURL) {
-    await makeRequestAndSaveCredentials(
-        `${baseUrl}${result.redirectURL}`,
-        searchPage,
-        {
-            headers: {
-                ...CACHE_HEADERS,
-            },
+/**
+ * Fetches HTML content from a URL using existing credentials and saves it
+ * @param url The URL to fetch from
+ * @param searchQuery The search query to use for folder organization
+ * @param filename Optional custom filename (without extension)
+ * @returns The response data
+ */
+async function fetchAndSaveHtml(url: string, searchQuery: string, filename?: string) {
+    try {
+        // Get credentials
+        const credentials = await loadCredentials();
+        let cookies = credentials?.[searchPage]?.cookies;
+
+        if (!cookies) {
+            console.log("No existing cookies found, fetching new ones...");
+            cookies = await getInitialCookies();
         }
-    );
+
+        // Make the request with all necessary headers
+        const response = await axios.get(url, {
+            headers: {
+                ...COMMON_HEADERS,
+                ...CACHE_HEADERS,
+                Cookie: cookies,
+                // Add specific headers for HTML content
+                Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+                "Upgrade-Insecure-Requests": "1",
+            },
+            maxRedirects: 5,
+        });
+
+        // Create folder for this search query if it doesn't exist
+        const queryFolder = `${FILE_DIR_PREFIX}${searchQuery}/`;
+        await fs.mkdir(queryFolder, { recursive: true });
+
+        // Generate filename based on URL if not provided
+        const defaultFilename = url.split("/").pop()?.split("?")[0] || "page";
+        const htmlFilename = `${filename || defaultFilename}.html`;
+
+        // Save the HTML content
+        await writeFile(`${queryFolder}${htmlFilename}`, response.data);
+        console.log(`HTML content saved to ${queryFolder}${htmlFilename}`);
+
+        // Also save any new cookies received
+        const newCookies = response.headers["set-cookie"];
+        if (newCookies && credentials?.[searchPage]) {
+            const updatedCookies = newCookies.join("; ");
+            await saveCredentials(searchPage, {
+                ...credentials[searchPage],
+                cookies: updatedCookies,
+            });
+            console.log("Updated cookies saved to credentials");
+        }
+
+        return response.data;
+    } catch (error) {
+        if (axios.isAxiosError(error)) {
+            console.error("Error fetching HTML:", error.message);
+            if (error.response) {
+                console.error("Response status:", error.response.status);
+                console.error("Response headers:", error.response.headers);
+            }
+        } else {
+            console.error("Error:", error);
+        }
+        throw error;
+    }
 }
 
-const resultAjax1 = await flowAjax1(searchQuery);
-console.log("resultAjax1: ", resultAjax1);
+async function executeSearch(searchQuery: string) {
+    try {
+        // Create a folder for this search query
+        const queryFolder = `${FILE_DIR_PREFIX}${searchQuery}/`;
+        await fs.mkdir(queryFolder, { recursive: true });
 
-const resultAjax2 = await flowAjax2(searchQuery);
-console.log("resultAjax2: ", resultAjax2);
+        const result = await flowAccept(searchQuery);
+        console.log("result: ", result);
+        await writeJsonFile(`${queryFolder}response_search.json`, result);
 
-const resultAjax3 = await flowAjax3(searchQuery);
-console.log("resultAjax3: ", resultAjax3);
+        // If there's a redirect URL, fetch and save its HTML content
+        if (result?.redirectURL) {
+            const redirectUrl = `${baseUrl}${result.redirectURL}`;
+            await fetchAndSaveHtml(redirectUrl, searchQuery, "redirect_page");
+            
+            await makeRequestAndSaveCredentials(
+                redirectUrl,
+                searchPage,
+                {
+                    headers: {
+                        ...CACHE_HEADERS,
+                    },
+                }
+            );
+        }
 
-const resultAjax = await flowAjaxFinal(searchQuery);
-console.log("resultAjax: ", resultAjax);
+        const resultAjax1 = await flowAjax1(searchQuery);
+        console.log("resultAjax1: ", resultAjax1);
+        await writeJsonFile(`${queryFolder}response_ajax1.json`, resultAjax1);
+
+        const resultAjax2 = await flowAjax2(searchQuery);
+        console.log("resultAjax2: ", resultAjax2);
+        await writeJsonFile(`${queryFolder}response_ajax2.json`, resultAjax2);
+
+        const resultAjax3 = await flowAjax3(searchQuery);
+        console.log("resultAjax3: ", resultAjax3);
+        await writeJsonFile(`${queryFolder}response_ajax3.json`, resultAjax3);
+
+        const resultAjax = await flowAjaxFinal(searchQuery);
+        console.log("resultAjax: ", resultAjax);
+        await writeJsonFile(`${queryFolder}response_ajax_final.json`, resultAjax);
+
+        return {
+            initialResult: result,
+            ajax1: resultAjax1,
+            ajax2: resultAjax2,
+            ajax3: resultAjax3,
+            ajaxFinal: resultAjax
+        };
+    } catch (error) {
+        console.error(`Error executing search for query "${searchQuery}":`, error);
+        throw error;
+    }
+}
+
+const searchQuery = "تست";
+// executeSearch(searchQuery);
+const url = baseUrl+"/ords/r/rrs/rrs-front/f-detail-ad?p28_code=16013058&p28_from_page=155&clear=28&session=5955111024012&cs=3_bfE-pgHKmiVYyHaOPffJxAPy5DKX_0HhbqaIg25kJxRHsdSa_h0D1YxI4plt_-6R3LExcUA8dZeEhOgE2BBAw"
+fetchAndSaveHtml(url, searchQuery, "redirect_page");

@@ -345,13 +345,23 @@ export async function getInitialCookies(): Promise<string> {
         });
         
         const cookies = response.headers['set-cookie'];
-        if (!cookies) {
-            throw new Error('No cookies received from server');
+        if (!cookies || cookies.length === 0) {
+            console.warn('No cookies received from server, checking for existing cookies in response headers');
+            const existingCookies = response.headers['cookie'];
+            if (existingCookies) {
+                return existingCookies;
+            }
+            throw new Error('No cookies found in server response');
         }
         
-        return cookies.join('; ');
+        // Filter out any null or undefined values and join
+        return cookies.filter(Boolean).join('; ');
     } catch (error) {
         console.error('Error getting initial cookies:', error);
+        if (axios.isAxiosError(error) && error.response) {
+            console.error('Response status:', error.response.status);
+            console.error('Response headers:', error.response.headers);
+        }
         throw error;
     }
 }
