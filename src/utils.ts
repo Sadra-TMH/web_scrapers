@@ -182,7 +182,7 @@ export async function extractFormCredentials(
                             const identifier = match[2];
                             
                             if (element && identifier) {
-                                credentials.ajaxIdentifiers[element] = identifier;
+                                credentials.ajaxIdentifiers[element] = parseEncodedString(identifier);
                             }
                         }
                         
@@ -202,4 +202,24 @@ export async function extractFormCredentials(
     }
 
     return credentials;
+}
+
+/**
+ * Properly parses a JSON string that contains escaped unicode sequences
+ * @param encodedString The string to parse
+ * @returns The properly decoded string
+ */
+function parseEncodedString(encodedString: string): string {
+  // Replace \\u002F with / (forward slash)
+  // JSON.parse will handle the rest of the unicode escapes
+  const preparedString = encodedString.replace(/\\u002F/g, '/');
+  
+  // Use JSON.parse to properly handle the escaped characters
+  // We need to wrap it in quotes to make it a valid JSON string
+  try {
+    return JSON.parse(`"${preparedString}"`);
+  } catch (error) {
+    console.error('Error parsing encoded string:', error);
+    return encodedString; // Return original if parsing fails
+  }
 }

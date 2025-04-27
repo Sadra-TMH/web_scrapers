@@ -58,3 +58,5 @@ coverage
 # Project specific
 tmp/
 temp/ 
+
+src/files/*
