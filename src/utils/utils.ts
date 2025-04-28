@@ -226,8 +226,10 @@ export async function extractFormCredentials(
     try {
         // Try multiple patterns to extract region ID
         const regionId = $('#P155_COMPANY_CODE').next('div').attr('id')?.replace('_ir', '');
+
         if (regionId) {
             credentials.companyRegionData.regionId = regionId;
+
             // Extract worksheet ID
             const worksheetIdSelector = `#${regionId}_worksheet_id`;
             const worksheetId = getValue(worksheetIdSelector);
@@ -241,8 +243,9 @@ export async function extractFormCredentials(
             const scriptWithRegionId = $(`script:contains("${regionId}")`).text();
             if (scriptWithRegionId) {
                 const configMatch = scriptWithRegionId.match(
-                    /apex\.jQuery\(\s*"#R555972666839129648_ir"\s*\)\.interactiveReport\((.*?)\);/s
+                    /interactiveReport\((.*?)\);/s
                 );
+                
                 if (configMatch) {
                     const configStr = configMatch[1];
                     const config = JSON.parse(configStr);

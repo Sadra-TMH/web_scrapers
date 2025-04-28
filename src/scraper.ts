@@ -407,13 +407,13 @@ async function flowAjaxCompany(searchQuery: string) {
         formData.append("p_debug", "");
         formData.append(
             "p_request",
-            "PLUGIN=UkVHSU9OIFRZUEV-fjU1NTk3MjY2NjgzOTEyOTY0OA/aHmXJDw-5jLKqBn6k-Njh5pFwbYWix019D-nPAjSkDeMV1uTsWeUGx7eGTlHg6AooyZLgzHHAF6URwLhAvRuWA"
+            `PLUGIN=${formCredentials?.companyRegionData?.ajaxIdentifier}`
         );
         formData.append("p_widget_name", "worksheet");
         formData.append("p_widget_mod", "PULL");
         formData.append("p_widget_num_return", "5");
-        formData.append("x01", "555972713409129649");
-        formData.append("x02", "556557601472705105");
+        formData.append("x01", formCredentials?.companyRegionData?.worksheetId || "");
+        formData.append("x02", formCredentials?.companyRegionData?.reportId || "");
         // Prepare the JSON payload
         const jsonPayload = {
             pageItems: {
@@ -513,7 +513,7 @@ async function flowAjaxFinal(searchQuery: string) {
                     ajaxColumns: formCredentials?.gridConfig?.ajaxColumns,
                     id: formCredentials?.gridConfig?.id,
                     ajaxIdentifier: formCredentials?.gridConfig?.ajaxIdentifier,
-                    fetchData: { version: 1, firstRow: 1, maxRows: 2},
+                    fetchData: { version: 1, firstRow: 1, maxRows: 2 },
                 },
             ],
             pageItems: {
@@ -600,7 +600,7 @@ async function executeSearch(searchQuery: string) {
                 },
             });
             const redirectResult = redirectReponse.response.data;
-            await writeFile(`${queryFolder}response_redirect.html`, redirectResult);
+            // await writeFile(`${queryFolder}response_redirect.html`, redirectResult);
         }
 
         // const resultAjax1 = await flowAjax1(searchQuery);
@@ -631,7 +631,7 @@ async function executeSearch(searchQuery: string) {
         );
 
         const resultAjaxCompany = await flowAjaxCompany(searchQuery);
-        // await writeJsonFile(`${queryFolder}response_ajax_company.json`, resultAjaxCompany);
+        await writeFile(`${queryFolder}response_ajax_company.html`, resultAjaxCompany);
 
         const searchResults = {
             initialResult: result,
