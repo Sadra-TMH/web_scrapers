@@ -23,6 +23,8 @@ import {
 import { extractFormCredentials } from "./utils/utils.js";
 import { handleAjaxFlow } from "./utils/utils.js";
 import { extractAndSaveUrls } from "./utils/utils.js";
+import * as readline from 'readline';
+import { stdin as input, stdout as output } from 'node:process';
 
 async function makeRequestAndSaveCredentials(
     url: string,
@@ -665,4 +667,29 @@ async function executeSearch(searchQuery: string) {
 // const searchQuery = "ب"
 // executeSearch(searchQuery);
 
-processCombinationsWithSearch(executeSearch, 1);
+// Create readline interface
+const rl = readline.createInterface({ input, output });
+
+// Ask for the length of combinations
+rl.question('Enter the length of combinations to generate (1-3 recommended): ', (answer) => {
+    const length = parseInt(answer);
+    if (isNaN(length) || length < 1) {
+        console.error('Please enter a valid positive number');
+        rl.close();
+        return;
+    }
+    
+    // Warn if length is large
+    if (length > 3) {
+        console.warn(`Warning: Length ${length} will generate ${Math.pow(33, length)} combinations!`);
+        rl.question('Are you sure you want to continue? (y/n): ', (confirm) => {
+            if (confirm.toLowerCase() === 'y') {
+                processCombinationsWithSearch(executeSearch, length);
+            }
+            rl.close();
+        });
+    } else {
+        processCombinationsWithSearch(executeSearch, length);
+        rl.close();
+    }
+});
