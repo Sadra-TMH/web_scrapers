@@ -6,7 +6,7 @@ import axios from "axios";
 import FormData from "form-data";
 
 // Logger types and utility
-export type LogLevel = 'info' | 'error' | 'warn' | 'debug';
+export type LogLevel = "info" | "error" | "warn" | "debug";
 
 interface LogContext {
     searchQuery?: string;
@@ -20,11 +20,15 @@ interface LogOptions {
 }
 
 class Logger {
-    private static formatMessage(level: LogLevel, message: string, options?: LogOptions): string {
+    private static formatMessage(
+        level: LogLevel,
+        message: string,
+        options?: LogOptions
+    ): string {
         const timestamp = new Date().toISOString();
         const context = options?.context;
         let formattedMessage = `[${timestamp}] [${level.toUpperCase()}]`;
-        
+
         if (context?.component) {
             formattedMessage += ` [${context.component}]`;
         }
@@ -34,9 +38,9 @@ class Logger {
         if (context?.url) {
             formattedMessage += ` [URL: ${context.url}]`;
         }
-        
+
         formattedMessage += `: ${message}`;
-        
+
         if (options?.error) {
             const error = options.error as Error;
             if (error.message) {
@@ -46,20 +50,20 @@ class Logger {
                 formattedMessage += `\nStack: ${error.stack}`;
             }
         }
-        
+
         return formattedMessage;
     }
 
     static log(level: LogLevel, message: string, options?: LogOptions): void {
         const formattedMessage = this.formatMessage(level, message, options);
         switch (level) {
-            case 'error':
+            case "error":
                 console.error(formattedMessage);
                 break;
-            case 'warn':
+            case "warn":
                 console.warn(formattedMessage);
                 break;
-            case 'debug':
+            case "debug":
                 console.debug(formattedMessage);
                 break;
             default:
@@ -68,19 +72,19 @@ class Logger {
     }
 
     static info(message: string, options?: LogOptions): void {
-        this.log('info', message, options);
+        this.log("info", message, options);
     }
 
     static error(message: string, options?: LogOptions): void {
-        this.log('error', message, options);
+        this.log("error", message, options);
     }
 
     static warn(message: string, options?: LogOptions): void {
-        this.log('warn', message, options);
+        this.log("warn", message, options);
     }
 
     static debug(message: string, options?: LogOptions): void {
-        this.log('debug', message, options);
+        this.log("debug", message, options);
     }
 }
 
@@ -172,10 +176,10 @@ export async function extractFormCredentials(
     const credentials: FormDataCredentials = {
         ajaxIdentifiers: {},
         companyRegionData: {
-            regionId: '',
-            worksheetId: '',
-            reportId: '',
-            ajaxIdentifier: ''
+            regionId: "",
+            worksheetId: "",
+            reportId: "",
+            ajaxIdentifier: "",
         },
     };
     const $ = cheerio.load(html);
@@ -225,7 +229,10 @@ export async function extractFormCredentials(
     // Extract grid configuration and ajax identifiers
     try {
         // Try multiple patterns to extract region ID
-        const regionId = $('#P155_COMPANY_CODE').next('div').attr('id')?.replace('_ir', '');
+        const regionId = $("#P155_COMPANY_CODE")
+            .next("div")
+            .attr("id")
+            ?.replace("_ir", "");
 
         if (regionId) {
             credentials.companyRegionData.regionId = regionId;
@@ -240,7 +247,9 @@ export async function extractFormCredentials(
             credentials.companyRegionData.reportId = reportId;
 
             // Extract ajax identifier from the script containing the region ID
-            const scriptWithRegionId = $(`script:contains("${regionId}")`).text();
+            const scriptWithRegionId = $(
+                `script:contains("${regionId}")`
+            ).text();
             if (scriptWithRegionId) {
                 const configMatch = scriptWithRegionId.match(
                     /interactiveReport\((.*?)\);/s
@@ -249,7 +258,8 @@ export async function extractFormCredentials(
                 if (configMatch) {
                     const configStr = configMatch[1];
                     const config = JSON.parse(configStr);
-                    credentials.companyRegionData.ajaxIdentifier = config.ajaxIdentifier;
+                    credentials.companyRegionData.ajaxIdentifier =
+                        config.ajaxIdentifier;
                 }
             }
         }
@@ -257,9 +267,7 @@ export async function extractFormCredentials(
         // Extract grid configuration from script tag
         const gridScript = $('script:contains("interactiveGrid")').text();
         if (gridScript) {
-            const configMatch = gridScript.match(
-                /interactiveGrid\((.*?)\);/s
-            );
+            const configMatch = gridScript.match(/interactiveGrid\((.*?)\);/s);
             if (configMatch) {
                 const configStr = configMatch[1];
                 const config = JSON.parse(configStr);
@@ -291,54 +299,62 @@ export async function extractFormCredentials(
 
                     try {
                         // Extract AJAX identifiers directly using regex instead of parsing JSON
-                        const ajaxIdentifierRegex = /"affectedElements"\s*:\s*"([^"]+)"[^}]*"ajaxIdentifier"\s*:\s*"([^"]+)"/g;
-                        
+                        const ajaxIdentifierRegex =
+                            /"affectedElements"\s*:\s*"([^"]+)"[^}]*"ajaxIdentifier"\s*:\s*"([^"]+)"/g;
+
                         let match;
-                        while ((match = ajaxIdentifierRegex.exec(eventListStr)) !== null) {
+                        while (
+                            (match = ajaxIdentifierRegex.exec(eventListStr)) !==
+                            null
+                        ) {
                             const element = match[1];
                             const identifier = match[2];
-                            
+
                             if (element && identifier) {
-                                credentials.ajaxIdentifiers[element] = identifier;
+                                credentials.ajaxIdentifiers[element] =
+                                    identifier;
                             }
                         }
-                        
+
                         // Also look for triggering elements
-                        const triggerRegex = /"triggeringElement"\s*:\s*"([^"]+)"[^}]*"ajaxIdentifier"\s*:\s*"([^"]+)"/g;
-                        
-                        while ((match = triggerRegex.exec(eventListStr)) !== null) {
+                        const triggerRegex =
+                            /"triggeringElement"\s*:\s*"([^"]+)"[^}]*"ajaxIdentifier"\s*:\s*"([^"]+)"/g;
+
+                        while (
+                            (match = triggerRegex.exec(eventListStr)) !== null
+                        ) {
                             const element = match[1];
                             const identifier = match[2];
-                            
+
                             if (element && identifier) {
-                                credentials.ajaxIdentifiers[element] = parseEncodedString(identifier);
+                                credentials.ajaxIdentifiers[element] =
+                                    parseEncodedString(identifier);
                             }
                         }
-                        
                     } catch (error) {
-                        Logger.error("Error extracting AJAX identifiers:", { 
-                            context: { 
-                                component: 'Credentials'
+                        Logger.error("Error extracting AJAX identifiers:", {
+                            context: {
+                                component: "Credentials",
                             },
-                            error 
+                            error,
                         });
                     }
                 }
             } catch (error) {
-                Logger.error("Error processing event list:", { 
-                    context: { 
-                        component: 'Credentials'
+                Logger.error("Error processing event list:", {
+                    context: {
+                        component: "Credentials",
                     },
-                    error 
+                    error,
                 });
             }
         }
     } catch (error) {
-        Logger.error("Error during extraction:", { 
-            context: { 
-                component: 'Credentials'
+        Logger.error("Error during extraction:", {
+            context: {
+                component: "Credentials",
             },
-            error 
+            error,
         });
     }
 
@@ -351,18 +367,18 @@ export async function extractFormCredentials(
  * @returns The properly decoded string
  */
 function parseEncodedString(encodedString: string): string {
-  // Replace \\u002F with / (forward slash)
-  // JSON.parse will handle the rest of the unicode escapes
-  const preparedString = encodedString.replace(/\\u002F/g, '/');
-  
-  // Use JSON.parse to properly handle the escaped characters
-  // We need to wrap it in quotes to make it a valid JSON string
-  try {
-    return JSON.parse(`"${preparedString}"`);
-  } catch (error) {
-    console.error('Error parsing encoded string:', error);
-    return encodedString; // Return original if parsing fails
-  }
+    // Replace \\u002F with / (forward slash)
+    // JSON.parse will handle the rest of the unicode escapes
+    const preparedString = encodedString.replace(/\\u002F/g, "/");
+
+    // Use JSON.parse to properly handle the escaped characters
+    // We need to wrap it in quotes to make it a valid JSON string
+    try {
+        return JSON.parse(`"${preparedString}"`);
+    } catch (error) {
+        console.error("Error parsing encoded string:", error);
+        return encodedString; // Return original if parsing fails
+    }
 }
 
 /**
@@ -383,10 +399,9 @@ export interface AjaxRequestParams {
 export async function handleAjaxFlow({
     searchQuery = "",
     getElement,
-    getAdditionalItems = () => []
+    getAdditionalItems = () => [],
 }: AjaxRequestParams) {
     try {
-
         // Get credentials - either load existing or fetch new ones
         const credentials = await loadCredentials();
         let cookies = credentials?.[searchPage]?.cookies;
@@ -401,7 +416,9 @@ export async function handleAjaxFlow({
             throw new Error("No form credentials found");
         }
         const elementId = getElement(formCredentials.flowStepId || "");
-        const additionalItems = getAdditionalItems(formCredentials.flowStepId || "");
+        const additionalItems = getAdditionalItems(
+            formCredentials.flowStepId || ""
+        );
         // Create FormData instance
         const formData = new FormData();
         formData.append("p_flow_id", formCredentials.flowId || "");
@@ -411,17 +428,17 @@ export async function handleAjaxFlow({
 
         const ajaxIdentifier = formCredentials.ajaxIdentifiers?.[elementId];
         if (!ajaxIdentifier) {
-            throw new Error(`No AJAX identifier found for element: ${elementId}`);
+            throw new Error(
+                `No AJAX identifier found for element: ${elementId}`
+            );
         }
 
         formData.append("p_request", `PLUGIN=${ajaxIdentifier}`);
 
         // Prepare the JSON payload
-        const itemsToSubmit = [
-            ...additionalItems,
-        ].map(item => ({
+        const itemsToSubmit = [...additionalItems].map((item) => ({
             n: item.name,
-            v: item.value
+            v: item.value,
         }));
 
         const jsonPayload = {
@@ -468,10 +485,13 @@ export async function handleAjaxFlow({
 
 export async function loadCredentials(): Promise<Credentials> {
     try {
-        const data = await fs.readFile(FILE_DIR_PREFIX + CREDENTIALS_FILE, 'utf-8');
+        const data = await fs.readFile(
+            FILE_DIR_PREFIX + CREDENTIALS_FILE,
+            "utf-8"
+        );
         return JSON.parse(data);
     } catch (error) {
-        console.error('Error loading credentials:', error);
+        console.error("Error loading credentials:", error);
         return {};
     }
 }
@@ -482,24 +502,26 @@ export async function getInitialCookies(): Promise<string> {
             headers: COMMON_HEADERS,
             maxRedirects: 5,
         });
-        
-        const cookies = response.headers['set-cookie'];
+
+        const cookies = response.headers["set-cookie"];
         if (!cookies || cookies.length === 0) {
-            console.warn('No cookies received from server, checking for existing cookies in response headers');
-            const existingCookies = response.headers['cookie'];
+            console.warn(
+                "No cookies received from server, checking for existing cookies in response headers"
+            );
+            const existingCookies = response.headers["cookie"];
             if (existingCookies) {
                 return existingCookies;
             }
-            throw new Error('No cookies found in server response');
+            throw new Error("No cookies found in server response");
         }
-        
+
         // Filter out any null or undefined values and join
-        return cookies.filter(Boolean).join('; ');
+        return cookies.filter(Boolean).join("; ");
     } catch (error) {
-        console.error('Error getting initial cookies:', error);
+        console.error("Error getting initial cookies:", error);
         if (axios.isAxiosError(error) && error.response) {
-            console.error('Response status:', error.response.status);
-            console.error('Response headers:', error.response.headers);
+            console.error("Response status:", error.response.status);
+            console.error("Response headers:", error.response.headers);
         }
         throw error;
     }
@@ -511,7 +533,13 @@ export async function getInitialCookies(): Promise<string> {
 interface AjaxResponse {
     regions?: Array<{
         fetchedData?: {
-            values?: Array<Array<string | { v: string; d: string } | { salt: string; protected: string; rowVersion: string }>>;
+            values?: Array<
+                Array<
+                    | string
+                    | { v: string; d: string }
+                    | { salt: string; protected: string; rowVersion: string }
+                >
+            >;
         };
     }>;
 }
@@ -524,10 +552,10 @@ interface AjaxResponse {
 function extractUrlFromHtml(htmlString: string): string | null {
     try {
         const $ = cheerio.load(htmlString);
-        const href = $('a').attr('href');
+        const href = $("a").attr("href");
         return href || null;
     } catch (error) {
-        console.error('Error extracting URL from HTML:', error);
+        console.error("Error extracting URL from HTML:", error);
         return null;
     }
 }
@@ -549,17 +577,22 @@ export async function getQueryFolder(searchQuery: string): Promise<string> {
  * @param searchQuery The search query for folder organization
  * @returns Array of extracted URLs
  */
-export async function extractAndSaveUrls(ajaxResponse: AjaxResponse, searchQuery: string): Promise<string[]> {
+export async function extractAndSaveUrls(
+    ajaxResponse: AjaxResponse,
+    searchQuery: string
+): Promise<string[]> {
     try {
         const urls: string[] = [];
-        
+
         // Extract URLs from the response
-        ajaxResponse.regions?.forEach(region => {
-            region.fetchedData?.values?.forEach(valueArray => {
-                if (valueArray[1] && typeof valueArray[1] === 'string') {
+        ajaxResponse.regions?.forEach((region) => {
+            region.fetchedData?.values?.forEach((valueArray) => {
+                if (valueArray[1] && typeof valueArray[1] === "string") {
                     const url = extractUrlFromHtml(valueArray[1]);
                     if (url) {
-                        const absoluteUrl = url.startsWith('/') ? `${baseUrl}${url}` : url;
+                        const absoluteUrl = url.startsWith("/")
+                            ? `${baseUrl}${url}`
+                            : url;
                         urls.push(absoluteUrl);
                     }
                 }
@@ -578,7 +611,7 @@ export async function extractAndSaveUrls(ajaxResponse: AjaxResponse, searchQuery
 
         return urls;
     } catch (error) {
-        console.error('Error extracting and saving URLs:', error);
+        console.error("Error extracting and saving URLs:", error);
         throw error;
     }
 }
@@ -586,20 +619,19 @@ export async function extractAndSaveUrls(ajaxResponse: AjaxResponse, searchQuery
 interface ExtractedInfo {
     url?: string;
     scrapedAt?: string;
-    trackingNumber?: string;    // شماره پیگیری
-    letterNumber?: string;      // شماره نامه
-    letterDate?: string;        // تاریخ نامه
-    newspaperNumber?: string;   // شماره روزنامه
-    newspaperDate?: string;     // تاریخ روزنامه
-    pageNumber?: string;        // شماره صفحه روزنامه
-    publishCount?: string;      // تعداد نوبت انتشار
-    title?: string;            // عنوان آگهی
-    content?: string;          // متن آگهی
+    trackingNumber?: string; // شماره پیگیری
+    letterNumber?: string; // شماره نامه
+    letterDate?: string; // تاریخ نامه
+    newspaperNumber?: string; // شماره روزنامه
+    newspaperDate?: string; // تاریخ روزنامه
+    pageNumber?: string; // شماره صفحه روزنامه
+    publishCount?: string; // تعداد نوبت انتشار
+    title?: string; // عنوان آگهی
+    content?: string; // متن آگهی
     companyName?: string;
     companyNationalId?: string;
     companyRegisterNumber?: string;
     letterPublisher?: string;
-
 }
 
 /**
@@ -613,32 +645,32 @@ function extractPageInfo(html: string, url: string): ExtractedInfo {
 
     // Helper function to get text content and clean it
     const getText = (selector: string): string => {
-        return $(selector).text().trim().replace(/\s+/g, ' ');
+        return $(selector).text().trim().replace(/\s+/g, " ");
     };
 
     // Helper function to get input value
     const getValue = (selector: string): string => {
-        return $(selector).val()?.toString().trim() || '';
+        return $(selector).val()?.toString().trim() || "";
     };
 
     try {
         info.url = url;
         info.scrapedAt = new Date().toISOString();
-        info.title = getText('span#P28_TITLE_DISPLAY');
-        info.trackingNumber = getText('span#P28_REFERENCENUMBER_DISPLAY');
-        info.letterNumber = getText('span#P28_INDIKATORNUMBER_DISPLAY');
-        info.letterDate = getText('span#P28_SABTDATE_DISPLAY');
-        info.newspaperNumber = getText('span#P28_NEWSPAPERNO_DISPLAY');
-        info.newspaperDate = getText('span#P28_NEWSPAPERDATE_DISPLAY');
-        info.pageNumber = getText('span#P28_PAGENUMBER_DISPLAY');
-        info.publishCount = getText('span#P28_HCNEWSSTAGE_DISPLAY');
+        info.title = getText("span#P28_TITLE_DISPLAY");
+        info.trackingNumber = getText("span#P28_REFERENCENUMBER_DISPLAY");
+        info.letterNumber = getText("span#P28_INDIKATORNUMBER_DISPLAY");
+        info.letterDate = getText("span#P28_SABTDATE_DISPLAY");
+        info.newspaperNumber = getText("span#P28_NEWSPAPERNO_DISPLAY");
+        info.newspaperDate = getText("span#P28_NEWSPAPERDATE_DISPLAY");
+        info.pageNumber = getText("span#P28_PAGENUMBER_DISPLAY");
+        info.publishCount = getText("span#P28_HCNEWSSTAGE_DISPLAY");
 
-        info.companyName = getText('span#P28_COMPANYNAME_DISPLAY');
-        info.companyNationalId = getText('span#P28_SABTNATIONALID_DISPLAY');
-        info.companyRegisterNumber = getText('span#P28_SABTNUMBER_DISPLAY');
-        info.letterPublisher = getText('span#P28_AGAHI_SADER_KONANDE_DISPLAY');
+        info.companyName = getText("span#P28_COMPANYNAME_DISPLAY");
+        info.companyNationalId = getText("span#P28_SABTNATIONALID_DISPLAY");
+        info.companyRegisterNumber = getText("span#P28_SABTNUMBER_DISPLAY");
+        info.letterPublisher = getText("span#P28_AGAHI_SADER_KONANDE_DISPLAY");
 
-        const regionId = $('[aria-label="متن آگهی:"]').attr('id');
+        const regionId = $('[aria-label="متن آگهی:"]').attr("id");
         info.content = getText(`[region-id=${regionId}]`);
 
         // Clean up empty values
@@ -647,9 +679,8 @@ function extractPageInfo(html: string, url: string): ExtractedInfo {
                 delete info[key as keyof ExtractedInfo];
             }
         });
-
     } catch (error) {
-        console.error('Error extracting page info:', error);
+        console.error("Error extracting page info:", error);
     }
 
     return info;
@@ -659,7 +690,11 @@ function extractPageInfo(html: string, url: string): ExtractedInfo {
  * Fetches HTML content from a URL using existing credentials and saves it
  * Also extracts specific information from the page
  */
-export async function fetchAndSaveHtml(url: string, searchQuery: string, filename?: string): Promise<{html: string, info: ExtractedInfo}> {
+export async function fetchAndSaveHtml(
+    url: string,
+    searchQuery: string,
+    filename?: string
+): Promise<{ html: string; info: ExtractedInfo }> {
     try {
         // Get credentials
         const credentials = await loadCredentials();
@@ -695,7 +730,7 @@ export async function fetchAndSaveHtml(url: string, searchQuery: string, filenam
 
         return {
             html: response.data,
-            info: extractedInfo
+            info: extractedInfo,
         };
     } catch (error) {
         if (axios.isAxiosError(error)) {
@@ -725,25 +760,25 @@ async function writeExtractedInfoBatchToCsv(
 ): Promise<void> {
     // Define the order of columns
     const columns = [
-        'rowNumber',
-        'url',
-        'scrapedAt',
-        'trackingNumber',
-        'letterNumber',
-        'letterDate',
-        'newspaperNumber',
-        'newspaperDate',
-        'pageNumber',
-        'publishCount',
-        'title',
-        'content',
-        'companyName',
-        'companyNationalId',
-        'companyRegisterNumber',
-        'letterPublisher',
+        "rowNumber",
+        "url",
+        "scrapedAt",
+        "trackingNumber",
+        "letterNumber",
+        "letterDate",
+        "newspaperNumber",
+        "newspaperDate",
+        "pageNumber",
+        "publishCount",
+        "title",
+        "content",
+        "companyName",
+        "companyNationalId",
+        "companyRegisterNumber",
+        "letterPublisher",
     ];
 
-    let csvContent = '';
+    let csvContent = "";
     let shouldAddHeaders = false;
 
     try {
@@ -758,46 +793,48 @@ async function writeExtractedInfoBatchToCsv(
 
         // Add headers only if this is the first batch AND file is empty/doesn't exist
         if (isFirstBatch && shouldAddHeaders) {
-            Logger.debug(`Adding headers to CSV file`, { 
-                context: { 
+            Logger.debug(`Adding headers to CSV file`, {
+                context: {
                     searchQuery,
-                    component: 'CSV',
-                    url: filePath 
-                } 
+                    component: "CSV",
+                    url: filePath,
+                },
             });
-            csvContent = columns.join(',') + '\n';
+            csvContent = columns.join(",") + "\n";
         }
 
         // Add data rows
-        const startRow = shouldAddHeaders ? 1 : await getCurrentRowCount(filePath);
+        const startRow = shouldAddHeaders
+            ? 1
+            : await getCurrentRowCount(filePath);
         data.forEach((item, index) => {
             const rowNumber = startRow + index;
-            const row = columns.map(col => {
-                if (col === 'rowNumber') return rowNumber;
-                const value = item[col as keyof ExtractedInfo] || '';
+            const row = columns.map((col) => {
+                if (col === "rowNumber") return rowNumber;
+                const value = item[col as keyof ExtractedInfo] || "";
                 // Escape commas and quotes in the value
                 return `"${String(value).replace(/"/g, '""')}"`;
             });
-            csvContent += row.join(',') + '\n';
+            csvContent += row.join(",") + "\n";
         });
 
         // Append to file
-        await fs.appendFile(filePath, csvContent, 'utf-8');
-        Logger.info(`Wrote batch of ${data.length} records to CSV`, { 
-            context: { 
+        await fs.appendFile(filePath, csvContent, "utf-8");
+        Logger.info(`Wrote batch of ${data.length} records to CSV`, {
+            context: {
                 searchQuery,
-                component: 'CSV',
-                url: filePath 
-            } 
+                component: "CSV",
+                url: filePath,
+            },
         });
     } catch (error) {
-        Logger.error(`Failed to write batch to CSV`, { 
-            context: { 
+        Logger.error(`Failed to write batch to CSV`, {
+            context: {
                 searchQuery,
-                component: 'CSV',
-                url: filePath 
+                component: "CSV",
+                url: filePath,
             },
-            error 
+            error,
         });
         throw error;
     }
@@ -810,9 +847,9 @@ async function writeExtractedInfoBatchToCsv(
  */
 async function getCurrentRowCount(filePath: string): Promise<number> {
     try {
-        const content = await fs.readFile(filePath, 'utf-8');
+        const content = await fs.readFile(filePath, "utf-8");
         // Count newlines (subtract 1 for header)
-        return content.split('\n').length - 1;
+        return content.split("\n").length - 1;
     } catch {
         // File doesn't exist yet
         return 0;
@@ -825,36 +862,46 @@ async function getCurrentRowCount(filePath: string): Promise<number> {
  * @param searchQuery The search query for folder organization
  * @returns Number of successfully processed URLs
  */
-export async function processExtractedUrls(urls: string[], searchQuery: string): Promise<number> {
+export async function processExtractedUrls(
+    urls: string[],
+    searchQuery: string
+): Promise<number> {
     const BATCH_SIZE = 100;
     const results: ExtractedInfo[] = [];
     const errors: { url: string; error: string }[] = [];
     let currentBatch: ExtractedInfo[] = [];
-    
+
     const queryFolder = await getQueryFolder(searchQuery);
     const csvFilePath = `${queryFolder}extracted_data.csv`;
 
-    Logger.info(`Starting URL processing`, { 
-        context: { 
+    Logger.info(`Starting URL processing`, {
+        context: {
             searchQuery,
-            component: 'URLProcessor',
-        } 
+            component: "URLProcessor",
+        },
     });
 
     for (const [index, url] of urls.entries()) {
         try {
-            Logger.debug(`Processing URL ${index + 1}/${urls.length}`, { 
-                context: { 
+            Logger.debug(`Processing URL ${index + 1}/${urls.length}`, {
+                context: {
                     searchQuery,
-                    component: 'URLProcessor',
-                } 
+                    component: "URLProcessor",
+                },
             });
-            
-            const { info } = await fetchAndSaveHtml(url, searchQuery, `page_${index + 1}`);
+
+            const { info } = await fetchAndSaveHtml(
+                url,
+                searchQuery,
+                `page_${index + 1}`
+            );
             results.push(info);
             currentBatch.push(info);
 
-            if (currentBatch.length >= BATCH_SIZE || index === urls.length - 1) {
+            if (
+                currentBatch.length >= BATCH_SIZE ||
+                index === urls.length - 1
+            ) {
                 await writeExtractedInfoBatchToCsv(
                     csvFilePath,
                     currentBatch,
@@ -864,41 +911,128 @@ export async function processExtractedUrls(urls: string[], searchQuery: string):
                 currentBatch = [];
             }
         } catch (error) {
-            Logger.error(`Failed to process URL`, { 
-                context: { 
+            Logger.error(`Failed to process URL`, {
+                context: {
                     searchQuery,
-                    component: 'URLProcessor',
-                    url 
+                    component: "URLProcessor",
+                    url,
                 },
-                error 
+                error,
             });
             errors.push({
                 url,
-                error: error instanceof Error ? error.message : 'Unknown error'
+                error: error instanceof Error ? error.message : "Unknown error",
             });
         }
     }
 
     if (errors.length > 0) {
-        Logger.warn(`Completed with errors`, { 
-            context: { 
+        Logger.warn(`Completed with errors`, {
+            context: {
                 searchQuery,
-                component: 'URLProcessor'
-            }
+                component: "URLProcessor",
+            },
         });
         await writeJsonFile(`${queryFolder}errors.json`, errors);
     }
 
-    Logger.info(`Processing completed`, { 
-        context: { 
+    Logger.info(`Processing completed`, {
+        context: {
             searchQuery,
-            component: 'URLProcessor'
-        }
+            component: "URLProcessor",
+        },
     });
-    
+
     currentBatch = [];
     const processedCount = results.length;
     results.length = 0;
 
     return processedCount;
 }
+
+export function generateCombinationsIterative(maxLength: number): string[] {
+    const persianLetters = [
+        "آ", "ا", "ب", "پ", "ت", "ث", "ج", "چ", "ح", "خ", "د", "ذ", "ر", "ز", "ژ",
+        "س", "ش", "ص", "ض", "ط", "ظ", "ع", "غ", "ف", "ق", "ک", "گ", "ل", "م", "ن",
+        "و", "ه", "ی"
+    ];
+
+    if (maxLength <= 0) {
+        return [];
+    }
+
+    let combinations: string[] = [...persianLetters]; // Start with single letters
+    
+    // For each additional length up to maxLength
+    for (let currentLength = 2; currentLength <= maxLength; currentLength++) {
+        const newCombinations: string[] = [];
+        
+        // For each existing combination
+        for (const combination of combinations) {
+            // Add each Persian letter to create new combinations
+            for (const letter of persianLetters) {
+                newCombinations.push(combination + letter);
+            }
+        }
+        
+        // Replace old combinations with new ones
+        combinations = newCombinations;
+    }
+    
+    return combinations; // Now only contains combinations of exactly maxLength
+}
+
+export async function processCombinationsWithSearch(searchFunction: (combination: string) => any, length: number, batchSize: number = 100): Promise<void> {
+    Logger.info(`Starting combination processing for length ${length}`, {
+        context: {
+            component: "CombinationProcessor",
+        },
+    });
+
+    const combinations = generateCombinationsIterative(length);
+    const totalCombinations = combinations.length;
+
+    Logger.info(`Generated ${totalCombinations} combinations`, {
+        context: {
+            component: "CombinationProcessor",
+        },
+    });
+
+    // Process in batches to manage memory and avoid overwhelming the system
+    for (let i = 0; i < combinations.length; i += batchSize) {
+        const batch = combinations.slice(i, i + batchSize);
+        Logger.info(`Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(totalCombinations/batchSize)}`, {
+            context: {
+                component: "CombinationProcessor",
+            },
+        });
+
+        // Process each combination in the current batch
+        for (const combination of batch) {
+            try {
+                Logger.debug(`Processing combination: ${combination}`, {
+                    context: {
+                        component: "CombinationProcessor",
+                    },
+                });
+                await searchFunction(combination);
+            } catch (error) {
+                Logger.error(`Error processing combination: ${combination}`, {
+                    context: {
+                        component: "CombinationProcessor",
+                    },
+                    error,
+                });
+                // Continue with next combination even if one fails
+                continue;
+            }
+        }
+    }
+
+    Logger.info(`Completed processing all combinations of length ${length}`, {
+        context: {
+            component: "CombinationProcessor",
+        },
+    });
+}
+

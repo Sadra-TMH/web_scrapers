@@ -18,6 +18,7 @@ import {
     processExtractedUrls,
     getQueryFolder,
     Logger,
+    processCombinationsWithSearch,
 } from "./utils/utils.js";
 import { extractFormCredentials } from "./utils/utils.js";
 import { handleAjaxFlow } from "./utils/utils.js";
@@ -661,5 +662,7 @@ async function executeSearch(searchQuery: string) {
     }
 }
 
-const searchQuery = "ب"
-executeSearch(searchQuery);
+// const searchQuery = "ب"
+// executeSearch(searchQuery);
+
+processCombinationsWithSearch(executeSearch, 1);
