@@ -245,7 +245,7 @@ export async function extractFormCredentials(
                 const configMatch = scriptWithRegionId.match(
                     /interactiveReport\((.*?)\);/s
                 );
-                
+
                 if (configMatch) {
                     const configStr = configMatch[1];
                     const config = JSON.parse(configStr);
@@ -595,6 +595,11 @@ interface ExtractedInfo {
     publishCount?: string;      // تعداد نوبت انتشار
     title?: string;            // عنوان آگهی
     content?: string;          // متن آگهی
+    companyName?: string;
+    companyNationalId?: string;
+    companyRegisterNumber?: string;
+    letterPublisher?: string;
+
 }
 
 /**
@@ -627,6 +632,11 @@ function extractPageInfo(html: string, url: string): ExtractedInfo {
         info.newspaperDate = getText('span#P28_NEWSPAPERDATE_DISPLAY');
         info.pageNumber = getText('span#P28_PAGENUMBER_DISPLAY');
         info.publishCount = getText('span#P28_HCNEWSSTAGE_DISPLAY');
+
+        info.companyName = getText('span#P28_COMPANYNAME_DISPLAY');
+        info.companyNationalId = getText('span#P28_SABTNATIONALID_DISPLAY');
+        info.companyRegisterNumber = getText('span#P28_SABTNUMBER_DISPLAY');
+        info.letterPublisher = getText('span#P28_AGAHI_SADER_KONANDE_DISPLAY');
 
         const regionId = $('[aria-label="متن آگهی:"]').attr('id');
         info.content = getText(`[region-id=${regionId}]`);
@@ -726,7 +736,11 @@ async function writeExtractedInfoBatchToCsv(
         'pageNumber',
         'publishCount',
         'title',
-        'content'
+        'content',
+        'companyName',
+        'companyNationalId',
+        'companyRegisterNumber',
+        'letterPublisher',
     ];
 
     let csvContent = '';
@@ -812,7 +826,7 @@ async function getCurrentRowCount(filePath: string): Promise<number> {
  * @returns Number of successfully processed URLs
  */
 export async function processExtractedUrls(urls: string[], searchQuery: string): Promise<number> {
-    const BATCH_SIZE = 200;
+    const BATCH_SIZE = 100;
     const results: ExtractedInfo[] = [];
     const errors: { url: string; error: string }[] = [];
     let currentBatch: ExtractedInfo[] = [];

@@ -513,7 +513,7 @@ async function flowAjaxFinal(searchQuery: string) {
                     ajaxColumns: formCredentials?.gridConfig?.ajaxColumns,
                     id: formCredentials?.gridConfig?.id,
                     ajaxIdentifier: formCredentials?.gridConfig?.ajaxIdentifier,
-                    fetchData: { version: 1, firstRow: 1, maxRows: 2 },
+                    fetchData: { version: 1, firstRow: 1, maxRows: 2000 },
                 },
             ],
             pageItems: {
@@ -661,5 +661,5 @@ async function executeSearch(searchQuery: string) {
     }
 }
 
-const searchQuery = "تست"
+const searchQuery = "ب"
 executeSearch(searchQuery);
