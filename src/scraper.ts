@@ -630,8 +630,8 @@ async function executeSearch(searchQuery: string) {
             searchQuery
         );
 
-        const resultAjaxCompany = await flowAjaxCompany(searchQuery);
-        await writeFile(`${queryFolder}response_ajax_company.html`, resultAjaxCompany);
+        // const resultAjaxCompany = await flowAjaxCompany(searchQuery);
+        // await writeFile(`${queryFolder}response_ajax_company.html`, resultAjaxCompany);
 
         const searchResults = {
             initialResult: result,
@@ -639,7 +639,7 @@ async function executeSearch(searchQuery: string) {
             ajaxFinal: resultAjax,
             extractedUrls,
             processedUrls,
-            resultAjaxCompany,
+            // resultAjaxCompany,
         };
         await writeJsonFile(`${queryFolder}search_results.json`, searchResults);
 
@@ -661,7 +661,5 @@ async function executeSearch(searchQuery: string) {
     }
 }
 
-const searchQuery = "تست";
+const searchQuery = "تست"
 executeSearch(searchQuery);
-// const url ="https://rrk.ir/ords/r/rrs/rrs-front/f-detail-ad?p28_code=16013058&p28_from_page=155&clear=28&session=3366973607923&cs=3ZLWom0HlPEkSEs3J257Pg4R5qMH5R4PRUnzjn0kyfJitFMm0MATo5-7umebjt84gKzzS14rWG04QDHTZMA7xLQ";
-// fetchAndSaveHtml(url, searchQuery, "infotest");
