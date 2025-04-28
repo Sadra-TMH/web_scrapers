@@ -482,7 +482,6 @@ function extractUrlFromHtml(htmlString: string): string | null {
 export async function getQueryFolder(searchQuery: string): Promise<string> {
     const queryFolder = `${FILE_DIR_PREFIX}${searchQuery}/`;
     await fs.mkdir(queryFolder, { recursive: true });
-    Logger.debug(`Created/accessed query folder`, { context: { searchQuery, component: 'FileSystem' } });
     return queryFolder;
 }
 
@@ -672,36 +671,64 @@ async function writeExtractedInfoBatchToCsv(
         'content'
     ];
 
-    // Create CSV content for this batch
     let csvContent = '';
+    let shouldAddHeaders = false;
 
-    // Add headers if this is the first batch
-    if (isFirstBatch) {
-        csvContent = columns.join(',') + '\n';
-    }
+    try {
+        // Check if file exists and is empty
+        try {
+            const stats = await fs.stat(filePath);
+            shouldAddHeaders = stats.size === 0;
+        } catch (error) {
+            // File doesn't exist, we should add headers
+            shouldAddHeaders = true;
+        }
 
-    // Add data rows
-    const startRow = isFirstBatch ? 1 : await getCurrentRowCount(filePath);
-    data.forEach((item, index) => {
-        const rowNumber = startRow + index;
-        const row = columns.map(col => {
-            if (col === 'rowNumber') return rowNumber;
-            const value = item[col as keyof ExtractedInfo] || '';
-            // Escape commas and quotes in the value
-            return `"${String(value).replace(/"/g, '""')}"`;
+        // Add headers only if this is the first batch AND file is empty/doesn't exist
+        if (isFirstBatch && shouldAddHeaders) {
+            Logger.debug(`Adding headers to CSV file`, { 
+                context: { 
+                    searchQuery,
+                    component: 'CSV',
+                    url: filePath 
+                } 
+            });
+            csvContent = columns.join(',') + '\n';
+        }
+
+        // Add data rows
+        const startRow = shouldAddHeaders ? 1 : await getCurrentRowCount(filePath);
+        data.forEach((item, index) => {
+            const rowNumber = startRow + index;
+            const row = columns.map(col => {
+                if (col === 'rowNumber') return rowNumber;
+                const value = item[col as keyof ExtractedInfo] || '';
+                // Escape commas and quotes in the value
+                return `"${String(value).replace(/"/g, '""')}"`;
+            });
+            csvContent += row.join(',') + '\n';
         });
-        csvContent += row.join(',') + '\n';
-    });
 
-    // Append to file
-    await fs.appendFile(filePath, csvContent, 'utf-8');
-    Logger.info(`Wrote batch of ${data.length} records to CSV`, { 
-        context: { 
-            searchQuery,
-            component: 'CSV',
-            url: filePath 
-        } 
-    });
+        // Append to file
+        await fs.appendFile(filePath, csvContent, 'utf-8');
+        Logger.info(`Wrote batch of ${data.length} records to CSV`, { 
+            context: { 
+                searchQuery,
+                component: 'CSV',
+                url: filePath 
+            } 
+        });
+    } catch (error) {
+        Logger.error(`Failed to write batch to CSV`, { 
+            context: { 
+                searchQuery,
+                component: 'CSV',
+                url: filePath 
+            },
+            error 
+        });
+        throw error;
+    }
 }
 
 /**

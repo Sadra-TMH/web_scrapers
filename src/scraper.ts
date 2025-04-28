@@ -414,7 +414,7 @@ async function flowAjaxFinal(searchQuery: string) {
                     ajaxColumns: formCredentials?.gridConfig?.ajaxColumns,
                     id: formCredentials?.gridConfig?.id,
                     ajaxIdentifier: formCredentials?.gridConfig?.ajaxIdentifier,
-                    fetchData: { version: 1, firstRow: 1, maxRows: 10 },
+                    fetchData: { version: 1, firstRow: 1, maxRows: 1000 },
                 },
             ],
             pageItems: {
