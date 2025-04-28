@@ -4,6 +4,7 @@ import {
     writeJsonFile,
     saveCredentials,
     loadCredentials,
+    writeFile,
 } from "./utils/fileUtils.js";
 import {
     COMMON_HEADERS,
@@ -74,12 +75,12 @@ async function makeRequestAndSaveCredentials(
             formCredentials,
         };
     } catch (error) {
-        Logger.error(`Request failed`, { 
-            context: { 
-                component: 'Request',
-                url 
+        Logger.error(`Request failed`, {
+            context: {
+                component: "Request",
+                url,
             },
-            error
+            error,
         });
         throw error;
     }
@@ -88,11 +89,11 @@ async function makeRequestAndSaveCredentials(
 async function getInitialCookies(): Promise<string> {
     try {
         const initialUrl = homeUrl;
-        Logger.debug(`Getting initial cookies`, { 
-            context: { 
-                component: 'Auth',
-                url: initialUrl 
-            } 
+        Logger.debug(`Getting initial cookies`, {
+            context: {
+                component: "Auth",
+                url: initialUrl,
+            },
         });
 
         // Make initial request without any credentials
@@ -113,11 +114,11 @@ async function getInitialCookies(): Promise<string> {
 
         return initialResult.cookies;
     } catch (error) {
-        Logger.error(`Failed to get initial cookies`, { 
-            context: { 
-                component: 'Auth'
+        Logger.error(`Failed to get initial cookies`, {
+            context: {
+                component: "Auth",
             },
-            error
+            error,
         });
         throw error;
     }
@@ -130,11 +131,11 @@ async function flowAccept(searchQuery: string) {
         let cookies = credentials?.[searchPage]?.cookies;
 
         if (!cookies) {
-            Logger.info(`No existing cookies found, fetching new ones`, { 
-                context: { 
+            Logger.info(`No existing cookies found, fetching new ones`, {
+                context: {
                     searchQuery,
-                    component: 'Auth'
-                } 
+                    component: "Auth",
+                },
             });
             cookies = await getInitialCookies();
         }
@@ -252,21 +253,21 @@ async function flowAccept(searchQuery: string) {
                 maxRedirects: 5,
             }
         );
-        Logger.info(`Flow accept completed`, { 
-            context: { 
+        Logger.info(`Flow accept completed`, {
+            context: {
                 searchQuery,
-                component: 'Search'
-            } 
+                component: "Search",
+            },
         });
 
         return searchResponse.data;
     } catch (error) {
-        Logger.error(`Flow accept failed`, { 
-            context: { 
+        Logger.error(`Flow accept failed`, {
+            context: {
                 searchQuery,
-                component: 'Search'
+                component: "Search",
             },
-            error
+            error,
         });
         throw error;
     }
@@ -288,21 +289,21 @@ async function flowAjax1(searchQuery: string) {
             ],
         });
 
-        Logger.info(`Flow ajax1 completed`, { 
-            context: { 
+        Logger.info(`Flow ajax1 completed`, {
+            context: {
                 searchQuery,
-                component: 'Search'
-            } 
+                component: "Search",
+            },
         });
 
         return response;
     } catch (error) {
-        Logger.error(`Flow ajax1 failed`, { 
-            context: { 
+        Logger.error(`Flow ajax1 failed`, {
+            context: {
                 searchQuery,
-                component: 'Search'
+                component: "Search",
             },
-            error 
+            error,
         });
         throw error;
     }
@@ -325,21 +326,21 @@ async function flowAjax2(searchQuery: string) {
             ],
         });
 
-        Logger.info(`Flow ajax2 completed`, { 
-            context: { 
+        Logger.info(`Flow ajax2 completed`, {
+            context: {
                 searchQuery,
-                component: 'Search'
-            } 
+                component: "Search",
+            },
         });
 
         return response;
     } catch (error) {
-        Logger.error(`Flow ajax2 failed`, { 
-            context: { 
+        Logger.error(`Flow ajax2 failed`, {
+            context: {
                 searchQuery,
-                component: 'Search'
+                component: "Search",
             },
-            error 
+            error,
         });
         throw error;
     }
@@ -361,21 +362,119 @@ async function flowAjax3(searchQuery: string) {
             ],
         });
 
-        Logger.info(`Flow ajax3 completed`, { 
-            context: { 
+        Logger.info(`Flow ajax3 completed`, {
+            context: {
                 searchQuery,
-                component: 'Search'
-            } 
+                component: "Search",
+            },
         });
 
         return response;
     } catch (error) {
-        Logger.error(`Flow ajax3 failed`, { 
-            context: { 
+        Logger.error(`Flow ajax3 failed`, {
+            context: {
                 searchQuery,
-                component: 'Search'
+                component: "Search",
             },
-            error 
+            error,
+        });
+        throw error;
+    }
+}
+
+async function flowAjaxCompany(searchQuery: string) {
+    try {
+        const credentials = await loadCredentials();
+        let cookies = credentials?.[searchPage]?.cookies;
+
+        if (!cookies) {
+            Logger.info(`No existing cookies found, fetching new ones`, {
+                context: {
+                    searchQuery,
+                    component: "Auth",
+                },
+            });
+            cookies = await getInitialCookies();
+        }
+
+        const formCredentials = credentials?.[searchPage]?.formData;
+
+        // Create FormData instance
+        const formData = new FormData();
+        formData.append("p_flow_id", formCredentials?.flowId || "");
+        formData.append("p_flow_step_id", formCredentials?.flowStepId || "");
+        formData.append("p_instance", formCredentials?.instance || "");
+        formData.append("p_debug", "");
+        formData.append(
+            "p_request",
+            "PLUGIN=UkVHSU9OIFRZUEV-fjU1NTk3MjY2NjgzOTEyOTY0OA/aHmXJDw-5jLKqBn6k-Njh5pFwbYWix019D-nPAjSkDeMV1uTsWeUGx7eGTlHg6AooyZLgzHHAF6URwLhAvRuWA"
+        );
+        formData.append("p_widget_name", "worksheet");
+        formData.append("p_widget_mod", "PULL");
+        formData.append("p_widget_num_return", "5");
+        formData.append("x01", "555972713409129649");
+        formData.append("x02", "556557601472705105");
+        // Prepare the JSON payload
+        const jsonPayload = {
+            pageItems: {
+                itemsToSubmit: [
+                    {
+                        n: `P${formCredentials?.flowStepId}_SINGLE_SEARCH`,
+                        v: searchQuery,
+                    },
+                    { n: `P${formCredentials?.flowStepId}_FOOTER`, v: "" },
+                    {
+                        n: `P${formCredentials?.flowStepId}_COMPANY_NAME`,
+                        v: "",
+                    },
+                    {
+                        n: `P${formCredentials?.flowStepId}_NATIONALCODECOMPANY`,
+                        v: "",
+                    },
+                    {
+                        n: `P${formCredentials?.flowStepId}_SABTNOCOMPANY`,
+                        v: "",
+                    },
+                ],
+                protected: formCredentials?.pPageItemsProtected,
+                rowVersion: "",
+                formRegionChecksums: [],
+            },
+            salt: formCredentials?.salt,
+        };
+
+        formData.append("p_json", JSON.stringify(jsonPayload));
+
+        const ajaxResponse = await axios.post(
+            `${ajaxUrl}${formCredentials?.instance}`,
+            formData,
+            {
+                headers: {
+                    ...COMMON_HEADERS,
+                    ...POST_HEADERS,
+                    ...formData.getHeaders(),
+                    Referer: baseUrl,
+                    Cookie: cookies,
+                },
+                maxRedirects: 5,
+            }
+        );
+
+        Logger.info(`Flow ajax company completed`, {
+            context: {
+                searchQuery,
+                component: "Search",
+            },
+        });
+
+        return ajaxResponse.data;
+    } catch (error) {
+        Logger.error(`Flow ajax company failed`, {
+            context: {
+                searchQuery,
+                component: "Search",
+            },
+            error,
         });
         throw error;
     }
@@ -387,11 +486,11 @@ async function flowAjaxFinal(searchQuery: string) {
         let cookies = credentials?.[searchPage]?.cookies;
 
         if (!cookies) {
-            Logger.info(`No existing cookies found, fetching new ones`, { 
-                context: { 
+            Logger.info(`No existing cookies found, fetching new ones`, {
+                context: {
                     searchQuery,
-                    component: 'Auth'
-                } 
+                    component: "Auth",
+                },
             });
             cookies = await getInitialCookies();
         }
@@ -414,7 +513,7 @@ async function flowAjaxFinal(searchQuery: string) {
                     ajaxColumns: formCredentials?.gridConfig?.ajaxColumns,
                     id: formCredentials?.gridConfig?.id,
                     ajaxIdentifier: formCredentials?.gridConfig?.ajaxIdentifier,
-                    fetchData: { version: 1, firstRow: 1, maxRows: 1000 },
+                    fetchData: { version: 1, firstRow: 1, maxRows: 2},
                 },
             ],
             pageItems: {
@@ -449,21 +548,21 @@ async function flowAjaxFinal(searchQuery: string) {
             }
         );
 
-        Logger.info(`Flow ajax final completed`, { 
-            context: { 
+        Logger.info(`Flow ajax final completed`, {
+            context: {
                 searchQuery,
-                component: 'Search'
-            } 
+                component: "Search",
+            },
         });
 
         return ajaxResponse.data;
     } catch (error) {
-        Logger.error(`Flow ajax final failed`, { 
-            context: { 
+        Logger.error(`Flow ajax final failed`, {
+            context: {
                 searchQuery,
-                component: 'Search'
+                component: "Search",
             },
-            error 
+            error,
         });
         throw error;
     }
@@ -471,11 +570,11 @@ async function flowAjaxFinal(searchQuery: string) {
 
 async function executeSearch(searchQuery: string) {
     try {
-        Logger.info(`Starting search execution`, { 
-            context: { 
+        Logger.info(`Starting search execution`, {
+            context: {
                 searchQuery,
-                component: 'Search'
-            } 
+                component: "Search",
+            },
         });
 
         // Create a folder for this search query
@@ -487,19 +586,21 @@ async function executeSearch(searchQuery: string) {
         // If there's a redirect URL, fetch and save its HTML content
         if (result?.redirectURL) {
             const redirectUrl = `${baseUrl}${result.redirectURL}`;
-            Logger.debug(`Following redirect`, { 
-                context: { 
+            Logger.debug(`Following redirect`, {
+                context: {
                     searchQuery,
-                    component: 'Search',
-                    url: redirectUrl
-                } 
+                    component: "Search",
+                    url: redirectUrl,
+                },
             });
 
-            await makeRequestAndSaveCredentials(redirectUrl, searchPage, {
+            const redirectReponse = await makeRequestAndSaveCredentials(redirectUrl, searchPage, {
                 headers: {
                     ...CACHE_HEADERS,
                 },
             });
+            const redirectResult = redirectReponse.response.data;
+            await writeFile(`${queryFolder}response_redirect.html`, redirectResult);
         }
 
         // const resultAjax1 = await flowAjax1(searchQuery);
@@ -517,39 +618,44 @@ async function executeSearch(searchQuery: string) {
 
         // Extract and save URLs from the final AJAX response
         const extractedUrls = await extractAndSaveUrls(resultAjax, searchQuery);
-        Logger.info(`URL extraction completed`, { 
-            context: { 
+        Logger.info(`URL extraction completed`, {
+            context: {
                 searchQuery,
-                component: 'Search'
-            } 
+                component: "Search",
+            },
         });
-        
-        const processedUrls = await processExtractedUrls(extractedUrls, searchQuery);
+
+        const processedUrls = await processExtractedUrls(
+            extractedUrls,
+            searchQuery
+        );
+
+        const resultAjaxCompany = await flowAjaxCompany(searchQuery);
+        // await writeJsonFile(`${queryFolder}response_ajax_company.json`, resultAjaxCompany);
 
         const searchResults = {
             initialResult: result,
-            // ajax1: resultAjax1,
             ajax2: resultAjax2,
-            // ajax3: resultAjax3,
             ajaxFinal: resultAjax,
             extractedUrls,
             processedUrls,
+            resultAjaxCompany,
         };
         await writeJsonFile(`${queryFolder}search_results.json`, searchResults);
-        
-        Logger.info(`Search execution completed`, { 
-            context: { 
+
+        Logger.info(`Search execution completed`, {
+            context: {
                 searchQuery,
-                component: 'Search'
-            } 
+                component: "Search",
+            },
         });
     } catch (error) {
-        Logger.error(`Search execution failed`, { 
-            context: { 
+        Logger.error(`Search execution failed`, {
+            context: {
                 searchQuery,
-                component: 'Search'
+                component: "Search",
             },
-            error
+            error,
         });
         throw error;
     }

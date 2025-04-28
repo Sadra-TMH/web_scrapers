@@ -149,6 +149,12 @@ export interface FormDataCredentials {
     ajaxIdentifiers: {
         [key: string]: string;
     };
+    companyRegionData: {
+        regionId?: string;
+        worksheetId?: string;
+        reportId?: string;
+        ajaxIdentifier?: string;
+    };
 }
 
 export interface UrlCredentials {
@@ -165,12 +171,23 @@ export async function extractFormCredentials(
 ): Promise<FormDataCredentials> {
     const credentials: FormDataCredentials = {
         ajaxIdentifiers: {},
+        companyRegionData: {
+            regionId: '',
+            worksheetId: '',
+            reportId: '',
+            ajaxIdentifier: ''
+        },
     };
     const $ = cheerio.load(html);
 
     // Helper function to get input value
     const getValue = (selector: string): string | undefined => {
         return $(selector).val()?.toString();
+    };
+
+    // Helper function to get attribute value
+    const getAttr = (selector: string, attr: string): string | undefined => {
+        return $(selector).attr(attr);
     };
 
     // Extract values using Cheerio selectors
@@ -207,10 +224,37 @@ export async function extractFormCredentials(
 
     // Extract grid configuration and ajax identifiers
     try {
+        // Try multiple patterns to extract region ID
+        const regionId = $('#P155_COMPANY_CODE').next('div').attr('id')?.replace('_ir', '');
+        if (regionId) {
+            credentials.companyRegionData.regionId = regionId;
+            // Extract worksheet ID
+            const worksheetIdSelector = `#${regionId}_worksheet_id`;
+            const worksheetId = getValue(worksheetIdSelector);
+            credentials.companyRegionData.worksheetId = worksheetId;
+
+            // Extract report ID
+            const reportId = getValue(`#${regionId}_report_id`);
+            credentials.companyRegionData.reportId = reportId;
+
+            // Extract ajax identifier from the script containing the region ID
+            const scriptWithRegionId = $(`script:contains("${regionId}")`).text();
+            if (scriptWithRegionId) {
+                const configMatch = scriptWithRegionId.match(
+                    /apex\.jQuery\(\s*"#R555972666839129648_ir"\s*\)\.interactiveReport\((.*?)\);/s
+                );
+                if (configMatch) {
+                    const configStr = configMatch[1];
+                    const config = JSON.parse(configStr);
+                    credentials.companyRegionData.ajaxIdentifier = config.ajaxIdentifier;
+                }
+            }
+        }
+
         // Extract grid configuration from script tag
-        const scriptContent = $('script:contains("interactiveGrid")').text();
-        if (scriptContent) {
-            const configMatch = scriptContent.match(
+        const gridScript = $('script:contains("interactiveGrid")').text();
+        if (gridScript) {
+            const configMatch = gridScript.match(
                 /interactiveGrid\((.*?)\);/s
             );
             if (configMatch) {
@@ -229,7 +273,6 @@ export async function extractFormCredentials(
         }
 
         // Find the script containing the event list initialization
-
         const eventListScript = $(
             'script:contains("apex.da.initDaEventList")'
         ).html();
@@ -270,18 +313,30 @@ export async function extractFormCredentials(
                         }
                         
                     } catch (error) {
-                        console.error("Error extracting AJAX identifiers:", error);
+                        Logger.error("Error extracting AJAX identifiers:", { 
+                            context: { 
+                                component: 'Credentials'
+                            },
+                            error 
+                        });
                     }
                 }
             } catch (error) {
-                console.error("Error processing event list:", error);
+                Logger.error("Error processing event list:", { 
+                    context: { 
+                        component: 'Credentials'
+                    },
+                    error 
+                });
             }
         }
     } catch (error) {
-        console.error("Error during extraction:", error);
-        if (error instanceof Error) {
-            console.error("Error message:", error.message);
-        }
+        Logger.error("Error during extraction:", { 
+            context: { 
+                component: 'Credentials'
+            },
+            error 
+        });
     }
 
     return credentials;
