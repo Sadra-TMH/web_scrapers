@@ -16,6 +16,7 @@ import {
     homeUrl,
     processExtractedUrls,
     getQueryFolder,
+    Logger,
 } from "./utils/utils.js";
 import { extractFormCredentials } from "./utils/utils.js";
 import { handleAjaxFlow } from "./utils/utils.js";
@@ -42,7 +43,6 @@ async function makeRequestAndSaveCredentials(
             ? credentials?.[lookupKey]?.cookies
             : null;
 
-        // console.log("existingCookies: ", credentials);
         const response = await axios({
             method: options.method || "GET",
             url,
@@ -74,7 +74,13 @@ async function makeRequestAndSaveCredentials(
             formCredentials,
         };
     } catch (error) {
-        console.error(`Error in request to ${url}:`, error);
+        Logger.error(`Request failed`, { 
+            context: { 
+                component: 'Request',
+                url 
+            },
+            error
+        });
         throw error;
     }
 }
@@ -82,6 +88,12 @@ async function makeRequestAndSaveCredentials(
 async function getInitialCookies(): Promise<string> {
     try {
         const initialUrl = homeUrl;
+        Logger.debug(`Getting initial cookies`, { 
+            context: { 
+                component: 'Auth',
+                url: initialUrl 
+            } 
+        });
 
         // Make initial request without any credentials
         const initialResult = await makeRequestAndSaveCredentials(initialUrl);
@@ -101,7 +113,12 @@ async function getInitialCookies(): Promise<string> {
 
         return initialResult.cookies;
     } catch (error) {
-        console.error("Error getting initial cookies:", error);
+        Logger.error(`Failed to get initial cookies`, { 
+            context: { 
+                component: 'Auth'
+            },
+            error
+        });
         throw error;
     }
 }
@@ -113,7 +130,12 @@ async function flowAccept(searchQuery: string) {
         let cookies = credentials?.[searchPage]?.cookies;
 
         if (!cookies) {
-            console.log("No existing cookies found, fetching new ones...");
+            Logger.info(`No existing cookies found, fetching new ones`, { 
+                context: { 
+                    searchQuery,
+                    component: 'Auth'
+                } 
+            });
             cookies = await getInitialCookies();
         }
 
@@ -230,19 +252,22 @@ async function flowAccept(searchQuery: string) {
                 maxRedirects: 5,
             }
         );
-        console.log("Data has been successfully fetched and saved");
+        Logger.info(`Flow accept completed`, { 
+            context: { 
+                searchQuery,
+                component: 'Search'
+            } 
+        });
 
         return searchResponse.data;
     } catch (error) {
-        if (axios.isAxiosError(error)) {
-            console.error("Axios error:", error.message);
-            if (error.response) {
-                console.error("Response status:", error.response.status);
-                console.error("Response data:", error.response.data);
-            }
-        } else {
-            console.error("Error:", error);
-        }
+        Logger.error(`Flow accept failed`, { 
+            context: { 
+                searchQuery,
+                component: 'Search'
+            },
+            error
+        });
         throw error;
     }
 }
@@ -263,12 +288,22 @@ async function flowAjax1(searchQuery: string) {
             ],
         });
 
-        // Create query folder and save response
-        console.log("Data has been successfully fetched and saved");
+        Logger.info(`Flow ajax1 completed`, { 
+            context: { 
+                searchQuery,
+                component: 'Search'
+            } 
+        });
 
         return response;
     } catch (error) {
-        console.error("Error in flowAjax1:", error);
+        Logger.error(`Flow ajax1 failed`, { 
+            context: { 
+                searchQuery,
+                component: 'Search'
+            },
+            error 
+        });
         throw error;
     }
 }
@@ -290,12 +325,22 @@ async function flowAjax2(searchQuery: string) {
             ],
         });
 
-        // Create query folder and save response
-        console.log("Data has been successfully fetched and saved");
+        Logger.info(`Flow ajax2 completed`, { 
+            context: { 
+                searchQuery,
+                component: 'Search'
+            } 
+        });
 
         return response;
     } catch (error) {
-        console.error("Error in flowAjax2:", error);
+        Logger.error(`Flow ajax2 failed`, { 
+            context: { 
+                searchQuery,
+                component: 'Search'
+            },
+            error 
+        });
         throw error;
     }
 }
@@ -316,25 +361,38 @@ async function flowAjax3(searchQuery: string) {
             ],
         });
 
-        // Create query folder and save response
-        console.log("Data has been successfully fetched and saved");
+        Logger.info(`Flow ajax3 completed`, { 
+            context: { 
+                searchQuery,
+                component: 'Search'
+            } 
+        });
 
         return response;
     } catch (error) {
-        console.error("Error in flowAjax3:", error);
+        Logger.error(`Flow ajax3 failed`, { 
+            context: { 
+                searchQuery,
+                component: 'Search'
+            },
+            error 
+        });
         throw error;
     }
 }
 
 async function flowAjaxFinal(searchQuery: string) {
     try {
-        // Get credentials - either load existing or fetch new ones
         const credentials = await loadCredentials();
-        // console.log("loaded credentials: ", credentials);
         let cookies = credentials?.[searchPage]?.cookies;
 
         if (!cookies) {
-            console.log("No existing cookies found, fetching new ones...");
+            Logger.info(`No existing cookies found, fetching new ones`, { 
+                context: { 
+                    searchQuery,
+                    component: 'Auth'
+                } 
+            });
             cookies = await getInitialCookies();
         }
 
@@ -391,26 +449,35 @@ async function flowAjaxFinal(searchQuery: string) {
             }
         );
 
-        // Create query folder and save response
-        console.log("Data has been successfully fetched and saved");
+        Logger.info(`Flow ajax final completed`, { 
+            context: { 
+                searchQuery,
+                component: 'Search'
+            } 
+        });
 
         return ajaxResponse.data;
     } catch (error) {
-        if (axios.isAxiosError(error)) {
-            console.error("Axios error:", error.message);
-            if (error.response) {
-                console.error("Response status:", error.response.status);
-                console.error("Response data:", error.response.data);
-            }
-        } else {
-            console.error("Error:", error);
-        }
+        Logger.error(`Flow ajax final failed`, { 
+            context: { 
+                searchQuery,
+                component: 'Search'
+            },
+            error 
+        });
         throw error;
     }
 }
 
 async function executeSearch(searchQuery: string) {
     try {
+        Logger.info(`Starting search execution`, { 
+            context: { 
+                searchQuery,
+                component: 'Search'
+            } 
+        });
+
         // Create a folder for this search query
         const queryFolder = await getQueryFolder(searchQuery);
 
@@ -420,6 +487,13 @@ async function executeSearch(searchQuery: string) {
         // If there's a redirect URL, fetch and save its HTML content
         if (result?.redirectURL) {
             const redirectUrl = `${baseUrl}${result.redirectURL}`;
+            Logger.debug(`Following redirect`, { 
+                context: { 
+                    searchQuery,
+                    component: 'Search',
+                    url: redirectUrl
+                } 
+            });
 
             await makeRequestAndSaveCredentials(redirectUrl, searchPage, {
                 headers: {
@@ -443,7 +517,12 @@ async function executeSearch(searchQuery: string) {
 
         // Extract and save URLs from the final AJAX response
         const extractedUrls = await extractAndSaveUrls(resultAjax, searchQuery);
-        console.log(`Extracted ${extractedUrls.length} URLs from the response`);
+        Logger.info(`URL extraction completed`, { 
+            context: { 
+                searchQuery,
+                component: 'Search'
+            } 
+        });
         
         const processedUrls = await processExtractedUrls(extractedUrls, searchQuery);
 
@@ -457,11 +536,21 @@ async function executeSearch(searchQuery: string) {
             processedUrls,
         };
         await writeJsonFile(`${queryFolder}search_results.json`, searchResults);
+        
+        Logger.info(`Search execution completed`, { 
+            context: { 
+                searchQuery,
+                component: 'Search'
+            } 
+        });
     } catch (error) {
-        console.error(
-            `Error executing search for query "${searchQuery}":`,
+        Logger.error(`Search execution failed`, { 
+            context: { 
+                searchQuery,
+                component: 'Search'
+            },
             error
-        );
+        });
         throw error;
     }
 }

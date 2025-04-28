@@ -5,6 +5,87 @@ import { FILE_DIR_PREFIX } from "./fileUtils";
 import axios from "axios";
 import FormData from "form-data";
 
+// Logger types and utility
+export type LogLevel = 'info' | 'error' | 'warn' | 'debug';
+
+interface LogContext {
+    searchQuery?: string;
+    component?: string;
+    url?: string;
+}
+
+interface LogOptions {
+    context?: LogContext;
+    error?: Error | unknown;
+}
+
+class Logger {
+    private static formatMessage(level: LogLevel, message: string, options?: LogOptions): string {
+        const timestamp = new Date().toISOString();
+        const context = options?.context;
+        let formattedMessage = `[${timestamp}] [${level.toUpperCase()}]`;
+        
+        if (context?.component) {
+            formattedMessage += ` [${context.component}]`;
+        }
+        if (context?.searchQuery) {
+            formattedMessage += ` [Query: ${context.searchQuery}]`;
+        }
+        if (context?.url) {
+            formattedMessage += ` [URL: ${context.url}]`;
+        }
+        
+        formattedMessage += `: ${message}`;
+        
+        if (options?.error) {
+            const error = options.error as Error;
+            if (error.message) {
+                formattedMessage += `\nError: ${error.message}`;
+            }
+            if (error.stack) {
+                formattedMessage += `\nStack: ${error.stack}`;
+            }
+        }
+        
+        return formattedMessage;
+    }
+
+    static log(level: LogLevel, message: string, options?: LogOptions): void {
+        const formattedMessage = this.formatMessage(level, message, options);
+        switch (level) {
+            case 'error':
+                console.error(formattedMessage);
+                break;
+            case 'warn':
+                console.warn(formattedMessage);
+                break;
+            case 'debug':
+                console.debug(formattedMessage);
+                break;
+            default:
+                console.log(formattedMessage);
+        }
+    }
+
+    static info(message: string, options?: LogOptions): void {
+        this.log('info', message, options);
+    }
+
+    static error(message: string, options?: LogOptions): void {
+        this.log('error', message, options);
+    }
+
+    static warn(message: string, options?: LogOptions): void {
+        this.log('warn', message, options);
+    }
+
+    static debug(message: string, options?: LogOptions): void {
+        this.log('debug', message, options);
+    }
+}
+
+export { Logger };
+
 // URLs
 export const baseUrl = "https://rrk.ir";
 export const searchPage = `${baseUrl}/ords/r/rrs/rrs-front/big_data11`;
@@ -401,6 +482,7 @@ function extractUrlFromHtml(htmlString: string): string | null {
 export async function getQueryFolder(searchQuery: string): Promise<string> {
     const queryFolder = `${FILE_DIR_PREFIX}${searchQuery}/`;
     await fs.mkdir(queryFolder, { recursive: true });
+    Logger.debug(`Created/accessed query folder`, { context: { searchQuery, component: 'FileSystem' } });
     return queryFolder;
 }
 
@@ -571,7 +653,8 @@ export async function fetchAndSaveHtml(url: string, searchQuery: string, filenam
 async function writeExtractedInfoBatchToCsv(
     filePath: string,
     data: ExtractedInfo[],
-    isFirstBatch: boolean
+    isFirstBatch: boolean,
+    searchQuery: string
 ): Promise<void> {
     // Define the order of columns
     const columns = [
@@ -612,6 +695,13 @@ async function writeExtractedInfoBatchToCsv(
 
     // Append to file
     await fs.appendFile(filePath, csvContent, 'utf-8');
+    Logger.info(`Wrote batch of ${data.length} records to CSV`, { 
+        context: { 
+            searchQuery,
+            component: 'CSV',
+            url: filePath 
+        } 
+    });
 }
 
 /**
@@ -642,31 +732,47 @@ export async function processExtractedUrls(urls: string[], searchQuery: string):
     const errors: { url: string; error: string }[] = [];
     let currentBatch: ExtractedInfo[] = [];
     
-    // Create folder and get path
     const queryFolder = await getQueryFolder(searchQuery);
     const csvFilePath = `${queryFolder}extracted_data.csv`;
 
-    console.log(`Starting to process ${urls.length} URLs...`);
+    Logger.info(`Starting URL processing`, { 
+        context: { 
+            searchQuery,
+            component: 'URLProcessor',
+        } 
+    });
 
     for (const [index, url] of urls.entries()) {
         try {
-            console.log(`Processing URL ${index + 1}/${urls.length}`);
+            Logger.debug(`Processing URL ${index + 1}/${urls.length}`, { 
+                context: { 
+                    searchQuery,
+                    component: 'URLProcessor',
+                } 
+            });
+            
             const { info } = await fetchAndSaveHtml(url, searchQuery, `page_${index + 1}`);
             results.push(info);
             currentBatch.push(info);
 
-            // Process batch if it reaches BATCH_SIZE or this is the last item
             if (currentBatch.length >= BATCH_SIZE || index === urls.length - 1) {
                 await writeExtractedInfoBatchToCsv(
                     csvFilePath,
                     currentBatch,
-                    index < BATCH_SIZE // isFirstBatch if we're still in the first batch
+                    index < BATCH_SIZE,
+                    searchQuery
                 );
-                // Clear the batch array to free memory
                 currentBatch = [];
             }
         } catch (error) {
-            console.error(`Error processing URL ${url}:`, error);
+            Logger.error(`Failed to process URL`, { 
+                context: { 
+                    searchQuery,
+                    component: 'URLProcessor',
+                    url 
+                },
+                error 
+            });
             errors.push({
                 url,
                 error: error instanceof Error ? error.message : 'Unknown error'
@@ -675,15 +781,22 @@ export async function processExtractedUrls(urls: string[], searchQuery: string):
     }
 
     if (errors.length > 0) {
-        console.warn(`Completed with ${errors.length} errors:`, errors);
-        // Save errors to a separate file
+        Logger.warn(`Completed with errors`, { 
+            context: { 
+                searchQuery,
+                component: 'URLProcessor'
+            }
+        });
         await writeJsonFile(`${queryFolder}errors.json`, errors);
     }
 
-    console.log(`Successfully processed ${results.length} out of ${urls.length} URLs`);
-    console.log(`Results saved to: ${csvFilePath}`);
+    Logger.info(`Processing completed`, { 
+        context: { 
+            searchQuery,
+            component: 'URLProcessor'
+        }
+    });
     
-    // Clear arrays to free memory
     currentBatch = [];
     const processedCount = results.length;
     results.length = 0;
