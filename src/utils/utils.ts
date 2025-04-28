@@ -4,6 +4,8 @@ import { writeJsonFile, saveCredentials } from "./fileUtils";
 import { FILE_DIR_PREFIX } from "./fileUtils";
 import axios from "axios";
 import FormData from "form-data";
+import * as fsSync from "fs";
+import path from "path";
 
 // Logger types and utility
 export type LogLevel = "info" | "error" | "warn" | "debug";
@@ -20,6 +22,42 @@ interface LogOptions {
 }
 
 class Logger {
+    private static logFile: string;
+    private static writeStream: fsSync.WriteStream | null = null;
+
+    static initialize(logDirectory: string = FILE_DIR_PREFIX) {
+        // Ensure the log directory exists
+        if (!fsSync.existsSync(logDirectory)) {
+            fsSync.mkdirSync(logDirectory, { recursive: true });
+        }
+
+        this.logFile = path.join(logDirectory, 'output.log');
+        
+        // Create or open the write stream
+        this.writeStream = fsSync.createWriteStream(this.logFile, { flags: 'a' });
+        
+        // Handle process termination
+        process.on('exit', () => this.cleanup());
+        process.on('SIGINT', () => {
+            this.cleanup();
+            process.exit();
+        });
+    }
+
+    private static cleanup() {
+        if (this.writeStream) {
+            this.writeStream.end();
+            this.writeStream = null;
+        }
+    }
+
+    private static writeToFile(message: string) {
+        if (!this.writeStream) {
+            this.initialize();
+        }
+        this.writeStream?.write(message + '\n');
+    }
+
     private static formatMessage(
         level: LogLevel,
         message: string,
@@ -56,19 +94,7 @@ class Logger {
 
     static log(level: LogLevel, message: string, options?: LogOptions): void {
         const formattedMessage = this.formatMessage(level, message, options);
-        switch (level) {
-            case "error":
-                console.error(formattedMessage);
-                break;
-            case "warn":
-                console.warn(formattedMessage);
-                break;
-            case "debug":
-                console.debug(formattedMessage);
-                break;
-            default:
-                console.log(formattedMessage);
-        }
+        this.writeToFile(formattedMessage);
     }
 
     static info(message: string, options?: LogOptions): void {
@@ -87,6 +113,9 @@ class Logger {
         this.log("debug", message, options);
     }
 }
+
+// Initialize logger
+Logger.initialize();
 
 export { Logger };
 
