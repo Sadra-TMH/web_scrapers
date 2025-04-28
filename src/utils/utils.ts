@@ -715,6 +715,14 @@ function extractPageInfo(html: string, url: string): ExtractedInfo {
     return info;
 }
 
+// Add these constants at the top of the file after imports
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 2000; // 2 seconds
+const TIMEOUT = 30000; // 30 seconds
+
+// Add this utility function for delay
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 /**
  * Fetches HTML content from a URL using existing credentials and saves it
  * Also extracts specific information from the page
@@ -724,55 +732,82 @@ export async function fetchAndSaveHtml(
     searchQuery: string,
     filename?: string
 ): Promise<{ html: string; info: ExtractedInfo }> {
-    try {
-        // Get credentials
-        const credentials = await loadCredentials();
-        let cookies = credentials?.[searchPage]?.cookies;
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+            // Get credentials
+            const credentials = await loadCredentials();
+            let cookies = credentials?.[searchPage]?.cookies;
 
-        if (!cookies) {
-            console.log("No existing cookies found, fetching new ones...");
-            cookies = await getInitialCookies();
-        }
-
-        // Make the request with all necessary headers
-        const response = await axios.get(url, {
-            headers: {
-                ...COMMON_HEADERS,
-                ...CACHE_HEADERS,
-                Cookie: cookies,
-                Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.5",
-                "Upgrade-Insecure-Requests": "1",
-            },
-            maxRedirects: 5,
-        });
-
-        // Create folder for this search query if it doesn't exist
-        const queryFolder = await getQueryFolder(searchQuery);
-
-        // Generate filename based on URL if not provided
-        const defaultFilename = url.split("/").pop()?.split("?")[0] || "page";
-        const htmlFilename = `${filename || defaultFilename}.html`;
-
-        // Extract information from the HTML
-        const extractedInfo = extractPageInfo(response.data, url);
-
-        return {
-            html: response.data,
-            info: extractedInfo,
-        };
-    } catch (error) {
-        if (axios.isAxiosError(error)) {
-            console.error("Error fetching HTML:", error.message);
-            if (error.response) {
-                console.error("Response status:", error.response.status);
-                console.error("Response headers:", error.response.headers);
+            if (!cookies) {
+                Logger.info("No existing cookies found, fetching new ones...", {
+                    context: {
+                        searchQuery,
+                        component: "Auth",
+                        url,
+                    },
+                });
+                cookies = await getInitialCookies();
             }
-        } else {
-            console.error("Error:", error);
+
+            // Make the request with all necessary headers and timeout
+            const response = await axios.get(url, {
+                headers: {
+                    ...COMMON_HEADERS,
+                    ...CACHE_HEADERS,
+                    Cookie: cookies,
+                    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.5",
+                    "Upgrade-Insecure-Requests": "1",
+                },
+                maxRedirects: 5,
+                timeout: TIMEOUT,
+                validateStatus: (status) => status < 500, // Only treat 500+ errors as errors
+            });
+
+            // Extract information from the HTML
+            const extractedInfo = extractPageInfo(response.data, url);
+
+            return {
+                html: response.data,
+                info: extractedInfo,
+            };
+        } catch (error) {
+            lastError = error as Error;
+            
+            // Log the retry attempt
+            Logger.warn(`Attempt ${attempt}/${MAX_RETRIES} failed for URL`, {
+                context: {
+                    searchQuery,
+                    component: "URLProcessor",
+                    url,
+                },
+                error,
+            });
+
+            // If this was the last attempt, throw the error
+            if (attempt === MAX_RETRIES) {
+                throw new Error(`Failed after ${MAX_RETRIES} attempts: ${lastError.message}`);
+            }
+
+            // If it's a network error or 5xx error, wait before retrying
+            if (axios.isAxiosError(error) && 
+                (error.code === 'ECONNABORTED' || 
+                 error.code === 'ETIMEDOUT' || 
+                 error.code === 'ECONNRESET' ||
+                 (error.response?.status && error.response.status >= 500))) {
+                await delay(RETRY_DELAY * attempt); // Exponential backoff
+                continue;
+            }
+
+            // If it's not a retryable error, throw immediately
+            throw error;
         }
-        throw error;
     }
+
+    // This should never be reached due to the throw in the loop
+    throw lastError || new Error('Unknown error occurred');
 }
 
 /**
@@ -895,13 +930,15 @@ export async function processExtractedUrls(
     urls: string[],
     searchQuery: string
 ): Promise<number> {
-    const BATCH_SIZE = 100;
+    const BATCH_SIZE = 50; // Reduced batch size
     const results: ExtractedInfo[] = [];
-    const errors: { url: string; error: string }[] = [];
+    const errors: { url: string; error: string; attempts: number }[] = [];
     let currentBatch: ExtractedInfo[] = [];
+    let successCount = 0;
 
     const queryFolder = await getQueryFolder(searchQuery);
     const csvFilePath = `${queryFolder}extracted_data.csv`;
+    const errorFilePath = `${queryFolder}errors.json`;
 
     Logger.info(`Starting URL processing`, {
         context: {
@@ -916,6 +953,7 @@ export async function processExtractedUrls(
                 context: {
                     searchQuery,
                     component: "URLProcessor",
+                    url,
                 },
             });
 
@@ -924,13 +962,13 @@ export async function processExtractedUrls(
                 searchQuery,
                 `page_${index + 1}`
             );
+            
             results.push(info);
             currentBatch.push(info);
+            successCount++;
 
-            if (
-                currentBatch.length >= BATCH_SIZE ||
-                index === urls.length - 1
-            ) {
+            // Write batch to CSV if batch size reached or last item
+            if (currentBatch.length >= BATCH_SIZE || index === urls.length - 1) {
                 await writeExtractedInfoBatchToCsv(
                     csvFilePath,
                     currentBatch,
@@ -938,6 +976,9 @@ export async function processExtractedUrls(
                     searchQuery
                 );
                 currentBatch = [];
+                
+                // Add a small delay between batches to prevent overwhelming the server
+                await delay(1000);
             }
         } catch (error) {
             Logger.error(`Failed to process URL`, {
@@ -948,35 +989,35 @@ export async function processExtractedUrls(
                 },
                 error,
             });
+            
             errors.push({
                 url,
                 error: error instanceof Error ? error.message : "Unknown error",
+                attempts: MAX_RETRIES,
             });
+
+            // Write errors to file immediately
+            await writeJsonFile(errorFilePath, errors);
         }
     }
 
     if (errors.length > 0) {
-        Logger.warn(`Completed with errors`, {
+        Logger.warn(`Completed with ${errors.length} errors`, {
             context: {
                 searchQuery,
                 component: "URLProcessor",
             },
         });
-        await writeJsonFile(`${queryFolder}errors.json`, errors);
     }
 
-    Logger.info(`Processing completed`, {
+    Logger.info(`Processing completed. Success: ${successCount}, Failures: ${errors.length}`, {
         context: {
             searchQuery,
             component: "URLProcessor",
         },
     });
 
-    currentBatch = [];
-    const processedCount = results.length;
-    results.length = 0;
-
-    return processedCount;
+    return successCount;
 }
 
 export function generateCombinationsIterative(maxLength: number): string[] {
