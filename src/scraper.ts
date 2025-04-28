@@ -1,9 +1,6 @@
-import * as cheerio from "cheerio";
 import axios from "axios";
 import FormData from "form-data";
 import {
-    FILE_DIR_PREFIX,
-    writeFile,
     writeJsonFile,
     saveCredentials,
     loadCredentials,
@@ -17,10 +14,12 @@ import {
     searchUrl,
     ajaxUrl,
     homeUrl,
+    processExtractedUrls,
+    getQueryFolder,
 } from "./utils/utils.js";
 import { extractFormCredentials } from "./utils/utils.js";
 import { handleAjaxFlow } from "./utils/utils.js";
-import fs from "fs/promises";
+import { extractAndSaveUrls } from "./utils/utils.js";
 
 async function makeRequestAndSaveCredentials(
     url: string,
@@ -132,7 +131,10 @@ async function flowAccept(searchQuery: string) {
         formData.append("p_debug", "");
         formData.append("p_request", "SEARCH");
         formData.append("p_reload_on_submit", "S");
-        formData.append("p_page_submission_id", formCredentials.pageSubmissionId || "");
+        formData.append(
+            "p_page_submission_id",
+            formCredentials.pageSubmissionId || ""
+        );
 
         const flowStepId = formCredentials.flowStepId || "";
         // Prepare the JSON payload
@@ -171,15 +173,24 @@ async function flowAccept(searchQuery: string) {
                         v: formCredentials.orderId?.value || "",
                         ck: formCredentials.orderId?.ck || "",
                     },
-                    { n: "P0_ORDER_PRICE", v: formCredentials.orderPrice || "" },
+                    {
+                        n: "P0_ORDER_PRICE",
+                        v: formCredentials.orderPrice || "",
+                    },
                     { n: "P0_BANNER", v: formCredentials.banner || "" },
-                    { n: "P0_LINK_BANNER", v: formCredentials.linkBanner || "" },
+                    {
+                        n: "P0_LINK_BANNER",
+                        v: formCredentials.linkBanner || "",
+                    },
                     {
                         n: "P0_TOOLTIP_BANNER",
                         v: formCredentials.tooltipBanner?.value || "",
                         ck: formCredentials.tooltipBanner?.ck || "",
                     },
-                    { n: "P0_CURRENTDATE", v: formCredentials.currentDate || "" },
+                    {
+                        n: "P0_CURRENTDATE",
+                        v: formCredentials.currentDate || "",
+                    },
                     { n: "P0_MT", v: formCredentials.mt || "" },
                     { n: `P${flowStepId}_CNT_RETURN_ROW`, v: "" },
                     { n: `P${flowStepId}_AMOUT_PER_ROW`, v: "50000" },
@@ -345,7 +356,7 @@ async function flowAjaxFinal(searchQuery: string) {
                     ajaxColumns: formCredentials?.gridConfig?.ajaxColumns,
                     id: formCredentials?.gridConfig?.id,
                     ajaxIdentifier: formCredentials?.gridConfig?.ajaxIdentifier,
-                    fetchData: { version: 1, firstRow: 1, maxRows: 100000 },
+                    fetchData: { version: 1, firstRow: 1, maxRows: 10 },
                 },
             ],
             pageItems: {
@@ -398,132 +409,64 @@ async function flowAjaxFinal(searchQuery: string) {
     }
 }
 
-/**
- * Fetches HTML content from a URL using existing credentials and saves it
- * @param url The URL to fetch from
- * @param searchQuery The search query to use for folder organization
- * @param filename Optional custom filename (without extension)
- * @returns The response data
- */
-async function fetchAndSaveHtml(url: string, searchQuery: string, filename?: string) {
-    try {
-        // Get credentials
-        const credentials = await loadCredentials();
-        let cookies = credentials?.[searchPage]?.cookies;
-
-        if (!cookies) {
-            console.log("No existing cookies found, fetching new ones...");
-            cookies = await getInitialCookies();
-        }
-
-        // Make the request with all necessary headers
-        const response = await axios.get(url, {
-            headers: {
-                ...COMMON_HEADERS,
-                ...CACHE_HEADERS,
-                Cookie: cookies,
-                // Add specific headers for HTML content
-                Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.5",
-                "Upgrade-Insecure-Requests": "1",
-            },
-            maxRedirects: 5,
-        });
-
-        // Create folder for this search query if it doesn't exist
-        const queryFolder = `${FILE_DIR_PREFIX}${searchQuery}/`;
-        await fs.mkdir(queryFolder, { recursive: true });
-
-        // Generate filename based on URL if not provided
-        const defaultFilename = url.split("/").pop()?.split("?")[0] || "page";
-        const htmlFilename = `${filename || defaultFilename}.html`;
-
-        // Save the HTML content
-        await writeFile(`${queryFolder}${htmlFilename}`, response.data);
-        console.log(`HTML content saved to ${queryFolder}${htmlFilename}`);
-
-        // Also save any new cookies received
-        const newCookies = response.headers["set-cookie"];
-        if (newCookies && credentials?.[searchPage]) {
-            const updatedCookies = newCookies.join("; ");
-            await saveCredentials(searchPage, {
-                ...credentials[searchPage],
-                cookies: updatedCookies,
-            });
-            console.log("Updated cookies saved to credentials");
-        }
-
-        return response.data;
-    } catch (error) {
-        if (axios.isAxiosError(error)) {
-            console.error("Error fetching HTML:", error.message);
-            if (error.response) {
-                console.error("Response status:", error.response.status);
-                console.error("Response headers:", error.response.headers);
-            }
-        } else {
-            console.error("Error:", error);
-        }
-        throw error;
-    }
-}
-
 async function executeSearch(searchQuery: string) {
     try {
         // Create a folder for this search query
-        const queryFolder = `${FILE_DIR_PREFIX}${searchQuery}/`;
-        await fs.mkdir(queryFolder, { recursive: true });
+        const queryFolder = await getQueryFolder(searchQuery);
 
         const result = await flowAccept(searchQuery);
-        console.log("result: ", result);
-        await writeJsonFile(`${queryFolder}response_search.json`, result);
+        // await writeJsonFile(`${queryFolder}response_search.json`, result);
 
         // If there's a redirect URL, fetch and save its HTML content
         if (result?.redirectURL) {
             const redirectUrl = `${baseUrl}${result.redirectURL}`;
-            await fetchAndSaveHtml(redirectUrl, searchQuery, "redirect_page");
-            
-            await makeRequestAndSaveCredentials(
-                redirectUrl,
-                searchPage,
-                {
-                    headers: {
-                        ...CACHE_HEADERS,
-                    },
-                }
-            );
+
+            await makeRequestAndSaveCredentials(redirectUrl, searchPage, {
+                headers: {
+                    ...CACHE_HEADERS,
+                },
+            });
         }
 
-        const resultAjax1 = await flowAjax1(searchQuery);
-        console.log("resultAjax1: ", resultAjax1);
-        await writeJsonFile(`${queryFolder}response_ajax1.json`, resultAjax1);
+        // const resultAjax1 = await flowAjax1(searchQuery);
+        // console.log("resultAjax1: ", resultAjax1);
+        // await writeJsonFile(`${queryFolder}response_ajax1.json`, resultAjax1);
 
         const resultAjax2 = await flowAjax2(searchQuery);
-        console.log("resultAjax2: ", resultAjax2);
-        await writeJsonFile(`${queryFolder}response_ajax2.json`, resultAjax2);
+        // await writeJsonFile(`${queryFolder}response_ajax2.json`, resultAjax2);
 
-        const resultAjax3 = await flowAjax3(searchQuery);
-        console.log("resultAjax3: ", resultAjax3);
-        await writeJsonFile(`${queryFolder}response_ajax3.json`, resultAjax3);
+        // const resultAjax3 = await flowAjax3(searchQuery);
+        // console.log("resultAjax3: ", resultAjax3);
+        // await writeJsonFile(`${queryFolder}response_ajax3.json`, resultAjax3);
 
         const resultAjax = await flowAjaxFinal(searchQuery);
-        console.log("resultAjax: ", resultAjax);
-        await writeJsonFile(`${queryFolder}response_ajax_final.json`, resultAjax);
 
-        return {
+        // Extract and save URLs from the final AJAX response
+        const extractedUrls = await extractAndSaveUrls(resultAjax, searchQuery);
+        console.log(`Extracted ${extractedUrls.length} URLs from the response`);
+        
+        const processedUrls = await processExtractedUrls(extractedUrls, searchQuery);
+
+        const searchResults = {
             initialResult: result,
-            ajax1: resultAjax1,
+            // ajax1: resultAjax1,
             ajax2: resultAjax2,
-            ajax3: resultAjax3,
-            ajaxFinal: resultAjax
+            // ajax3: resultAjax3,
+            ajaxFinal: resultAjax,
+            extractedUrls,
+            processedUrls,
         };
+        await writeJsonFile(`${queryFolder}search_results.json`, searchResults);
     } catch (error) {
-        console.error(`Error executing search for query "${searchQuery}":`, error);
+        console.error(
+            `Error executing search for query "${searchQuery}":`,
+            error
+        );
         throw error;
     }
 }
 
 const searchQuery = "تست";
-// executeSearch(searchQuery);
-const url = baseUrl+"/ords/r/rrs/rrs-front/f-detail-ad?p28_code=16013058&p28_from_page=155&clear=28&session=5955111024012&cs=3_bfE-pgHKmiVYyHaOPffJxAPy5DKX_0HhbqaIg25kJxRHsdSa_h0D1YxI4plt_-6R3LExcUA8dZeEhOgE2BBAw"
-fetchAndSaveHtml(url, searchQuery, "redirect_page");
+executeSearch(searchQuery);
+// const url ="https://rrk.ir/ords/r/rrs/rrs-front/f-detail-ad?p28_code=16013058&p28_from_page=155&clear=28&session=3366973607923&cs=3ZLWom0HlPEkSEs3J257Pg4R5qMH5R4PRUnzjn0kyfJitFMm0MATo5-7umebjt84gKzzS14rWG04QDHTZMA7xLQ";
+// fetchAndSaveHtml(url, searchQuery, "infotest");

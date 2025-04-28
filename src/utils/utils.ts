@@ -1,6 +1,6 @@
 import fs from "fs/promises";
 import * as cheerio from "cheerio";
-import { writeJsonFile } from "./fileUtils";
+import { writeJsonFile, saveCredentials } from "./fileUtils";
 import { FILE_DIR_PREFIX } from "./fileUtils";
 import axios from "axios";
 import FormData from "form-data";
@@ -364,4 +364,329 @@ export async function getInitialCookies(): Promise<string> {
         }
         throw error;
     }
+}
+
+/**
+ * Interface for the AJAX response structure
+ */
+interface AjaxResponse {
+    regions?: Array<{
+        fetchedData?: {
+            values?: Array<Array<string | { v: string; d: string } | { salt: string; protected: string; rowVersion: string }>>;
+        };
+    }>;
+}
+
+/**
+ * Extracts URLs from HTML anchor tags
+ * @param htmlString The HTML string containing anchor tags
+ * @returns The extracted URL or null if no URL found
+ */
+function extractUrlFromHtml(htmlString: string): string | null {
+    try {
+        const $ = cheerio.load(htmlString);
+        const href = $('a').attr('href');
+        return href || null;
+    } catch (error) {
+        console.error('Error extracting URL from HTML:', error);
+        return null;
+    }
+}
+
+/**
+ * Gets or creates a folder for the given search query
+ * @param searchQuery The search query to create folder for
+ * @returns The path to the query folder
+ */
+export async function getQueryFolder(searchQuery: string): Promise<string> {
+    const queryFolder = `${FILE_DIR_PREFIX}${searchQuery}/`;
+    await fs.mkdir(queryFolder, { recursive: true });
+    return queryFolder;
+}
+
+/**
+ * Extracts and saves URLs from AJAX response
+ * @param ajaxResponse The AJAX response object
+ * @param searchQuery The search query for folder organization
+ * @returns Array of extracted URLs
+ */
+export async function extractAndSaveUrls(ajaxResponse: AjaxResponse, searchQuery: string): Promise<string[]> {
+    try {
+        const urls: string[] = [];
+        
+        // Extract URLs from the response
+        ajaxResponse.regions?.forEach(region => {
+            region.fetchedData?.values?.forEach(valueArray => {
+                if (valueArray[1] && typeof valueArray[1] === 'string') {
+                    const url = extractUrlFromHtml(valueArray[1]);
+                    if (url) {
+                        const absoluteUrl = url.startsWith('/') ? `${baseUrl}${url}` : url;
+                        urls.push(absoluteUrl);
+                    }
+                }
+            });
+        });
+
+        // if (urls.length > 0) {
+        //     const queryFolder = await getQueryFolder(searchQuery);
+        //     // Save URLs to a file
+        //     const urlsWithNewlines = urls.join('\n');
+        //     await fs.writeFile(`${queryFolder}extracted_urls.csv`, urlsWithNewlines, 'utf-8');
+        //     console.log(`Saved ${urls.length} URLs to ${queryFolder}extracted_urls.csv`);
+        // } else {
+        //     console.log('No URLs found in the AJAX response');
+        // }
+
+        return urls;
+    } catch (error) {
+        console.error('Error extracting and saving URLs:', error);
+        throw error;
+    }
+}
+
+interface ExtractedInfo {
+    url?: string;
+    scrapedAt?: string;
+    trackingNumber?: string;    // شماره پیگیری
+    letterNumber?: string;      // شماره نامه
+    letterDate?: string;        // تاریخ نامه
+    newspaperNumber?: string;   // شماره روزنامه
+    newspaperDate?: string;     // تاریخ روزنامه
+    pageNumber?: string;        // شماره صفحه روزنامه
+    publishCount?: string;      // تعداد نوبت انتشار
+    title?: string;            // عنوان آگهی
+    content?: string;          // متن آگهی
+}
+
+/**
+ * Extracts specific information from the HTML content
+ * @param html The HTML content to parse
+ * @returns Object containing the extracted information
+ */
+function extractPageInfo(html: string, url: string): ExtractedInfo {
+    const $ = cheerio.load(html);
+    const info: ExtractedInfo = {};
+
+    // Helper function to get text content and clean it
+    const getText = (selector: string): string => {
+        return $(selector).text().trim().replace(/\s+/g, ' ');
+    };
+
+    // Helper function to get input value
+    const getValue = (selector: string): string => {
+        return $(selector).val()?.toString().trim() || '';
+    };
+
+    try {
+        info.url = url;
+        info.scrapedAt = new Date().toISOString();
+        info.title = getText('span#P28_TITLE_DISPLAY');
+        info.trackingNumber = getText('span#P28_REFERENCENUMBER_DISPLAY');
+        info.letterNumber = getText('span#P28_INDIKATORNUMBER_DISPLAY');
+        info.letterDate = getText('span#P28_SABTDATE_DISPLAY');
+        info.newspaperNumber = getText('span#P28_NEWSPAPERNO_DISPLAY');
+        info.newspaperDate = getText('span#P28_NEWSPAPERDATE_DISPLAY');
+        info.pageNumber = getText('span#P28_PAGENUMBER_DISPLAY');
+        info.publishCount = getText('span#P28_HCNEWSSTAGE_DISPLAY');
+
+        const regionId = $('[aria-label="متن آگهی:"]').attr('id');
+        info.content = getText(`[region-id=${regionId}]`);
+
+        // Clean up empty values
+        Object.keys(info).forEach((key) => {
+            if (!info[key as keyof ExtractedInfo]) {
+                delete info[key as keyof ExtractedInfo];
+            }
+        });
+
+    } catch (error) {
+        console.error('Error extracting page info:', error);
+    }
+
+    return info;
+}
+
+/**
+ * Fetches HTML content from a URL using existing credentials and saves it
+ * Also extracts specific information from the page
+ */
+export async function fetchAndSaveHtml(url: string, searchQuery: string, filename?: string): Promise<{html: string, info: ExtractedInfo}> {
+    try {
+        // Get credentials
+        const credentials = await loadCredentials();
+        let cookies = credentials?.[searchPage]?.cookies;
+
+        if (!cookies) {
+            console.log("No existing cookies found, fetching new ones...");
+            cookies = await getInitialCookies();
+        }
+
+        // Make the request with all necessary headers
+        const response = await axios.get(url, {
+            headers: {
+                ...COMMON_HEADERS,
+                ...CACHE_HEADERS,
+                Cookie: cookies,
+                Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+                "Upgrade-Insecure-Requests": "1",
+            },
+            maxRedirects: 5,
+        });
+
+        // Create folder for this search query if it doesn't exist
+        const queryFolder = await getQueryFolder(searchQuery);
+
+        // Generate filename based on URL if not provided
+        const defaultFilename = url.split("/").pop()?.split("?")[0] || "page";
+        const htmlFilename = `${filename || defaultFilename}.html`;
+
+        // Extract information from the HTML
+        const extractedInfo = extractPageInfo(response.data, url);
+
+        return {
+            html: response.data,
+            info: extractedInfo
+        };
+    } catch (error) {
+        if (axios.isAxiosError(error)) {
+            console.error("Error fetching HTML:", error.message);
+            if (error.response) {
+                console.error("Response status:", error.response.status);
+                console.error("Response headers:", error.response.headers);
+            }
+        } else {
+            console.error("Error:", error);
+        }
+        throw error;
+    }
+}
+
+/**
+ * Writes a batch of ExtractedInfo objects to a CSV file
+ * @param filePath Path to the CSV file
+ * @param data Array of ExtractedInfo objects to write
+ * @param isFirstBatch Whether this is the first batch (to write headers)
+ */
+async function writeExtractedInfoBatchToCsv(
+    filePath: string,
+    data: ExtractedInfo[],
+    isFirstBatch: boolean
+): Promise<void> {
+    // Define the order of columns
+    const columns = [
+        'rowNumber',
+        'url',
+        'scrapedAt',
+        'trackingNumber',
+        'letterNumber',
+        'letterDate',
+        'newspaperNumber',
+        'newspaperDate',
+        'pageNumber',
+        'publishCount',
+        'title',
+        'content'
+    ];
+
+    // Create CSV content for this batch
+    let csvContent = '';
+
+    // Add headers if this is the first batch
+    if (isFirstBatch) {
+        csvContent = columns.join(',') + '\n';
+    }
+
+    // Add data rows
+    const startRow = isFirstBatch ? 1 : await getCurrentRowCount(filePath);
+    data.forEach((item, index) => {
+        const rowNumber = startRow + index;
+        const row = columns.map(col => {
+            if (col === 'rowNumber') return rowNumber;
+            const value = item[col as keyof ExtractedInfo] || '';
+            // Escape commas and quotes in the value
+            return `"${String(value).replace(/"/g, '""')}"`;
+        });
+        csvContent += row.join(',') + '\n';
+    });
+
+    // Append to file
+    await fs.appendFile(filePath, csvContent, 'utf-8');
+}
+
+/**
+ * Gets the current number of rows in the CSV file
+ * @param filePath Path to the CSV file
+ * @returns Number of rows (excluding header)
+ */
+async function getCurrentRowCount(filePath: string): Promise<number> {
+    try {
+        const content = await fs.readFile(filePath, 'utf-8');
+        // Count newlines (subtract 1 for header)
+        return content.split('\n').length - 1;
+    } catch {
+        // File doesn't exist yet
+        return 0;
+    }
+}
+
+/**
+ * Processes a list of URLs and extracts information from each page
+ * @param urls List of URLs to process
+ * @param searchQuery The search query for folder organization
+ * @returns Number of successfully processed URLs
+ */
+export async function processExtractedUrls(urls: string[], searchQuery: string): Promise<number> {
+    const BATCH_SIZE = 200;
+    const results: ExtractedInfo[] = [];
+    const errors: { url: string; error: string }[] = [];
+    let currentBatch: ExtractedInfo[] = [];
+    
+    // Create folder and get path
+    const queryFolder = await getQueryFolder(searchQuery);
+    const csvFilePath = `${queryFolder}extracted_data.csv`;
+
+    console.log(`Starting to process ${urls.length} URLs...`);
+
+    for (const [index, url] of urls.entries()) {
+        try {
+            console.log(`Processing URL ${index + 1}/${urls.length}`);
+            const { info } = await fetchAndSaveHtml(url, searchQuery, `page_${index + 1}`);
+            results.push(info);
+            currentBatch.push(info);
+
+            // Process batch if it reaches BATCH_SIZE or this is the last item
+            if (currentBatch.length >= BATCH_SIZE || index === urls.length - 1) {
+                await writeExtractedInfoBatchToCsv(
+                    csvFilePath,
+                    currentBatch,
+                    index < BATCH_SIZE // isFirstBatch if we're still in the first batch
+                );
+                // Clear the batch array to free memory
+                currentBatch = [];
+            }
+        } catch (error) {
+            console.error(`Error processing URL ${url}:`, error);
+            errors.push({
+                url,
+                error: error instanceof Error ? error.message : 'Unknown error'
+            });
+        }
+    }
+
+    if (errors.length > 0) {
+        console.warn(`Completed with ${errors.length} errors:`, errors);
+        // Save errors to a separate file
+        await writeJsonFile(`${queryFolder}errors.json`, errors);
+    }
+
+    console.log(`Successfully processed ${results.length} out of ${urls.length} URLs`);
+    console.log(`Results saved to: ${csvFilePath}`);
+    
+    // Clear arrays to free memory
+    currentBatch = [];
+    const processedCount = results.length;
+    results.length = 0;
+
+    return processedCount;
 }
