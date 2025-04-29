@@ -5,6 +5,8 @@ import {
     saveCredentials,
     loadCredentials,
     writeFile,
+    FILE_DIR_PREFIX,
+    CREDENTIALS_FILE,
 } from "./utils/fileUtils.js";
 import {
     COMMON_HEADERS,
@@ -25,6 +27,8 @@ import { handleAjaxFlow } from "./utils/utils.js";
 import { extractAndSaveUrls } from "./utils/utils.js";
 import * as readline from 'readline';
 import { stdin as input, stdout as output } from 'node:process';
+import fs from "fs/promises";
+import * as cheerio from "cheerio";
 
 async function makeRequestAndSaveCredentials(
     url: string,
@@ -571,61 +575,160 @@ async function flowAjaxFinal(searchQuery: string) {
     }
 }
 
-async function executeSearch(searchQuery: string) {
+// Add session management utilities
+interface SessionResponse {
+    error?: string;
+    unsafe?: boolean;
+    addInfo?: string;
+    pageSubmissionId?: string;
+    redirectURL?: string;
+}
+
+async function isSessionExpired(response: any): Promise<boolean> {
+    if (typeof response === 'object' && response !== null) {
+        // Check for session expired message in the response
+        if (response.error === "Your session has ended.") {
+            return true;
+        }
+    }
+    return false;
+}
+
+async function renewSession(): Promise<void> {
+    try {
+        Logger.info("Renewing session...", {
+            context: {
+                component: "SessionManager",
+            },
+        });
+
+        // Clear existing credentials
+        await writeJsonFile(FILE_DIR_PREFIX + CREDENTIALS_FILE, {});
+        
+        // Get new cookies and credentials
+        const cookies = await getInitialCookies();
+        
+        Logger.info("Session renewed successfully", {
+            context: {
+                component: "SessionManager",
+            },
+        });
+    } catch (error) {
+        Logger.error("Failed to renew session", {
+            context: {
+                component: "SessionManager",
+            },
+            error,
+        });
+        throw error;
+    }
+}
+
+async function withSessionRetry<T>(
+    operation: () => Promise<T>,
+    context: { searchQuery?: string; component?: string } = {}
+): Promise<T> {
+    try {
+        const result = await operation();
+        
+        // Check if the result indicates session expiration
+        if (await isSessionExpired(result)) {
+            Logger.warn("Session expired, attempting renewal", {
+                context: {
+                    ...context,
+                    component: "SessionManager",
+                },
+            });
+            
+            // Renew session
+            await renewSession();
+            
+            // Retry the operation
+            Logger.info("Retrying operation after session renewal", {
+                context: {
+                    ...context,
+                    component: "SessionManager",
+                },
+            });
+            return await operation();
+        }
+        
+        return result;
+    } catch (error) {
+        // If the error response indicates session expiration, retry
+        if (axios.isAxiosError(error) && 
+            error.response?.data && 
+            await isSessionExpired(error.response.data)) {
+            
+            Logger.warn("Session expired (from error), attempting renewal", {
+                context: {
+                    ...context,
+                    component: "SessionManager",
+                },
+            });
+            
+            await renewSession();
+            return await operation();
+        }
+        throw error;
+    }
+}
+
+// Modify executeSearch to use session management
+export async function executeSearch(searchQuery: string) {
+    const searchContext = {
+        searchQuery,
+        component: "Search",
+    };
+
     try {
         Logger.info(`Starting search execution`, {
-            context: {
-                searchQuery,
-                component: "Search",
-            },
+            context: searchContext,
         });
 
         // Create a folder for this search query
         const queryFolder = await getQueryFolder(searchQuery);
 
-        const result = await flowAccept(searchQuery);
-        // await writeJsonFile(`${queryFolder}response_search.json`, result);
+        // Wrap each operation with session retry
+        const result = await withSessionRetry(
+            () => flowAccept(searchQuery),
+            searchContext
+        );
 
-        // If there's a redirect URL, fetch and save its HTML content
         if (result?.redirectURL) {
             const redirectUrl = `${baseUrl}${result.redirectURL}`;
             Logger.debug(`Following redirect`, {
                 context: {
-                    searchQuery,
-                    component: "Search",
+                    ...searchContext,
                     url: redirectUrl,
                 },
             });
 
-            const redirectReponse = await makeRequestAndSaveCredentials(redirectUrl, searchPage, {
-                headers: {
-                    ...CACHE_HEADERS,
-                },
-            });
-            const redirectResult = redirectReponse.response.data;
-            // await writeFile(`${queryFolder}response_redirect.html`, redirectResult);
+            await withSessionRetry(
+                () => makeRequestAndSaveCredentials(redirectUrl, searchPage, {
+                    headers: {
+                        ...CACHE_HEADERS,
+                    },
+                }),
+                searchContext
+            );
         }
 
-        // const resultAjax1 = await flowAjax1(searchQuery);
-        // console.log("resultAjax1: ", resultAjax1);
-        // await writeJsonFile(`${queryFolder}response_ajax1.json`, resultAjax1);
+        const resultAjax2 = await withSessionRetry(
+            () => flowAjax2(searchQuery),
+            searchContext
+        );
 
-        const resultAjax2 = await flowAjax2(searchQuery);
-        // await writeJsonFile(`${queryFolder}response_ajax2.json`, resultAjax2);
-
-        // const resultAjax3 = await flowAjax3(searchQuery);
-        // console.log("resultAjax3: ", resultAjax3);
-        // await writeJsonFile(`${queryFolder}response_ajax3.json`, resultAjax3);
-
-        const resultAjax = await flowAjaxFinal(searchQuery);
+        const resultAjax = await withSessionRetry(
+            () => flowAjaxFinal(searchQuery),
+            searchContext
+        );
 
         // Extract and save URLs from the final AJAX response
         const extractedUrls = await extractAndSaveUrls(resultAjax, searchQuery);
+        
         Logger.info(`URL extraction completed`, {
-            context: {
-                searchQuery,
-                component: "Search",
-            },
+            context: searchContext,
         });
 
         const processedUrls = await processExtractedUrls(
@@ -633,31 +736,24 @@ async function executeSearch(searchQuery: string) {
             searchQuery
         );
 
-        // const resultAjaxCompany = await flowAjaxCompany(searchQuery);
-        // await writeFile(`${queryFolder}response_ajax_company.html`, resultAjaxCompany);
-
         const searchResults = {
             initialResult: result,
             ajax2: resultAjax2,
             ajaxFinal: resultAjax,
             extractedUrls,
             processedUrls,
-            // resultAjaxCompany,
         };
+        
         await writeJsonFile(`${queryFolder}search_results.json`, searchResults);
 
         Logger.info(`Search execution completed`, {
-            context: {
-                searchQuery,
-                component: "Search",
-            },
+            context: searchContext,
         });
+        
+        return searchResults;
     } catch (error) {
         Logger.error(`Search execution failed`, {
-            context: {
-                searchQuery,
-                component: "Search",
-            },
+            context: searchContext,
             error,
         });
         throw error;
