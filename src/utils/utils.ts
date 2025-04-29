@@ -1052,7 +1052,99 @@ export function generateCombinationsIterative(maxLength: number): string[] {
     return combinations; // Now only contains combinations of exactly maxLength
 }
 
-export async function processCombinationsWithSearch(searchFunction: (combination: string) => any, length: number, batchSize: number = 100): Promise<void> {
+// Add these types for status tracking
+interface CombinationStatus {
+    combination: string;
+    status: 'pending' | 'completed' | 'failed';
+    startedAt?: string;
+    completedAt?: string;
+    error?: string;
+}
+
+interface BatchStatus {
+    length: number;
+    totalCombinations: number;
+    processedCount: number;
+    failedCount: number;
+    lastProcessed?: string;
+    startedAt: string;
+    lastUpdated: string;
+    combinations: { [key: string]: CombinationStatus };
+}
+
+async function getOrCreateStatusFile(combination: string): Promise<CombinationStatus | null> {
+    try {
+        const queryFolder = await getQueryFolder(combination);
+        const statusPath = `${queryFolder}status.json`;
+        
+        try {
+            const statusContent = await fs.readFile(statusPath, 'utf-8');
+            return JSON.parse(statusContent);
+        } catch (error) {
+            // If file doesn't exist or can't be parsed, return null
+            return null;
+        }
+    } catch (error) {
+        Logger.error(`Failed to read status file`, {
+            context: {
+                component: "StatusManager",
+                searchQuery: combination,
+            },
+            error,
+        });
+        return null;
+    }
+}
+
+async function updateStatusFile(combination: string, status: CombinationStatus): Promise<void> {
+    try {
+        const queryFolder = await getQueryFolder(combination);
+        const statusPath = `${queryFolder}status.json`;
+        await writeJsonFile(statusPath, status);
+    } catch (error) {
+        Logger.error(`Failed to update status file`, {
+            context: {
+                component: "StatusManager",
+                searchQuery: combination,
+            },
+            error,
+        });
+    }
+}
+
+async function getOrCreateBatchStatus(length: number): Promise<BatchStatus> {
+    const batchStatusPath = `${FILE_DIR_PREFIX}batch_status_${length}.json`;
+    
+    try {
+        const content = await fs.readFile(batchStatusPath, 'utf-8');
+        return JSON.parse(content);
+    } catch (error) {
+        // If file doesn't exist or can't be parsed, create new batch status
+        const newStatus: BatchStatus = {
+            length,
+            totalCombinations: 0, // Will be set later
+            processedCount: 0,
+            failedCount: 0,
+            startedAt: new Date().toISOString(),
+            lastUpdated: new Date().toISOString(),
+            combinations: {},
+        };
+        await writeJsonFile(batchStatusPath, newStatus);
+        return newStatus;
+    }
+}
+
+async function updateBatchStatus(length: number, status: BatchStatus): Promise<void> {
+    const batchStatusPath = `${FILE_DIR_PREFIX}batch_status_${length}.json`;
+    status.lastUpdated = new Date().toISOString();
+    await writeJsonFile(batchStatusPath, status);
+}
+
+export async function processCombinationsWithSearch(
+    searchFunction: (combination: string) => Promise<any>,
+    length: number,
+    batchSize: number = 100
+): Promise<void> {
     Logger.info(`Starting combination processing for length ${length}`, {
         context: {
             component: "CombinationProcessor",
@@ -1061,6 +1153,10 @@ export async function processCombinationsWithSearch(searchFunction: (combination
 
     const combinations = generateCombinationsIterative(length);
     const totalCombinations = combinations.length;
+
+    // Get or create batch status
+    const batchStatus = await getOrCreateBatchStatus(length);
+    batchStatus.totalCombinations = totalCombinations;
 
     Logger.info(`Generated ${totalCombinations} combinations`, {
         context: {
@@ -1079,13 +1175,44 @@ export async function processCombinationsWithSearch(searchFunction: (combination
 
         // Process each combination in the current batch
         for (const combination of batch) {
+            // Check if combination was already processed
+            const existingStatus = await getOrCreateStatusFile(combination);
+            if (existingStatus?.status === 'completed') {
+                Logger.info(`Skipping already processed combination: ${combination}`, {
+                    context: {
+                        component: "CombinationProcessor",
+                    },
+                });
+                continue;
+            }
+
+            // Create new status for this combination
+            const combinationStatus: CombinationStatus = {
+                combination,
+                status: 'pending',
+                startedAt: new Date().toISOString(),
+            };
+
+            // Update status files
+            await updateStatusFile(combination, combinationStatus);
+            batchStatus.combinations[combination] = combinationStatus;
+            await updateBatchStatus(length, batchStatus);
+
             try {
                 Logger.debug(`Processing combination: ${combination}`, {
                     context: {
                         component: "CombinationProcessor",
                     },
                 });
+
                 await searchFunction(combination);
+
+                // Update status to completed
+                combinationStatus.status = 'completed';
+                combinationStatus.completedAt = new Date().toISOString();
+                batchStatus.processedCount++;
+                batchStatus.lastProcessed = combination;
+
             } catch (error) {
                 Logger.error(`Error processing combination: ${combination}`, {
                     context: {
@@ -1093,9 +1220,18 @@ export async function processCombinationsWithSearch(searchFunction: (combination
                     },
                     error,
                 });
-                // Continue with next combination even if one fails
-                continue;
+
+                // Update status to failed
+                combinationStatus.status = 'failed';
+                combinationStatus.completedAt = new Date().toISOString();
+                combinationStatus.error = error instanceof Error ? error.message : 'Unknown error';
+                batchStatus.failedCount++;
             }
+
+            // Update both status files
+            await updateStatusFile(combination, combinationStatus);
+            batchStatus.combinations[combination] = combinationStatus;
+            await updateBatchStatus(length, batchStatus);
         }
     }
 
