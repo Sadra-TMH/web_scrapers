@@ -766,26 +766,62 @@ export async function executeSearch(searchQuery: string) {
 // Create readline interface
 const rl = readline.createInterface({ input, output });
 
-// Ask for the length of combinations
-rl.question('Enter the length of combinations to generate (1-3 recommended): ', (answer) => {
-    const length = parseInt(answer);
-    if (isNaN(length) || length < 1) {
-        console.error('Please enter a valid positive number');
-        rl.close();
-        return;
-    }
-    
-    // Warn if length is large
-    if (length > 3) {
-        console.warn(`Warning: Length ${length} will generate ${Math.pow(33, length)} combinations!`);
-        rl.question('Are you sure you want to continue? (y/n): ', (confirm) => {
-            if (confirm.toLowerCase() === 'y') {
-                processCombinationsWithSearch(executeSearch, length);
+// Function to prompt for input
+const promptInput = (question: string): Promise<string> => {
+    return new Promise((resolve) => {
+        rl.question(question, resolve);
+    });
+};
+
+// Main async function to handle the flow
+async function main() {
+    try {
+        // Ask for the length of combinations
+        const lengthStr = await promptInput('Enter the length of combinations to generate (1-3 recommended): ');
+        const length = parseInt(lengthStr);
+        
+        if (isNaN(length) || length < 1) {
+            console.error('Please enter a valid positive number');
+            return;
+        }
+
+        // Ask for the number of workers
+        const workersStr = await promptInput('Enter the number of parallel workers (1-8 recommended): ');
+        const workers = parseInt(workersStr);
+
+        if (isNaN(workers) || workers < 1) {
+            console.error('Please enter a valid positive number for workers');
+            return;
+        }
+
+        // Warn if length is large
+        if (length > 3) {
+            console.warn(`Warning: Length ${length} will generate ${Math.pow(33, length)} combinations!`);
+            const confirm = await promptInput('Are you sure you want to continue? (y/n): ');
+            
+            if (confirm.toLowerCase() !== 'y') {
+                return;
             }
-            rl.close();
-        });
-    } else {
-        processCombinationsWithSearch(executeSearch, length);
+        }
+
+        // Start workers
+        console.log(`Starting ${workers} workers for processing combinations of length ${length}...`);
+        
+        // Create promises for all workers
+        const workerPromises = Array.from({ length: workers }, (_, i) => 
+            processCombinationsWithSearch(executeSearch, length, workers, i)
+        );
+
+        // Wait for all workers to complete
+        await Promise.all(workerPromises);
+        console.log('All workers have completed their tasks.');
+
+    } catch (error) {
+        console.error('An error occurred:', error);
+    } finally {
         rl.close();
     }
-});
+}
+
+// Run the main function
+main();

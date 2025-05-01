@@ -14,6 +14,7 @@ interface LogContext {
     searchQuery?: string;
     component?: string;
     url?: string;
+    workerId?: string;
 }
 
 interface LogOptions {
@@ -1059,6 +1060,7 @@ interface CombinationStatus {
     startedAt?: string;
     completedAt?: string;
     error?: string;
+    workerId?: string;
 }
 
 interface BatchStatus {
@@ -1143,33 +1145,46 @@ async function updateBatchStatus(length: number, status: BatchStatus): Promise<v
 export async function processCombinationsWithSearch(
     searchFunction: (combination: string) => Promise<any>,
     length: number,
+    workers: number = 1,
+    workerId: number = 0,
     batchSize: number = 100
 ): Promise<void> {
-    Logger.info(`Starting combination processing for length ${length}`, {
+    Logger.info(`Starting combination processing for length ${length} on worker ${workerId}`, {
         context: {
             component: "CombinationProcessor",
+            workerId: `Worker-${workerId}`,
         },
     });
 
-    const combinations = generateCombinationsIterative(length);
-    const totalCombinations = combinations.length;
+    const allCombinations = generateCombinationsIterative(length);
+    const totalCombinations = allCombinations.length;
+    
+    // Calculate the range for this worker
+    const combinationsPerWorker = Math.ceil(totalCombinations / workers);
+    const startIndex = workerId * combinationsPerWorker;
+    const endIndex = Math.min((workerId + 1) * combinationsPerWorker, totalCombinations);
+    const combinations = allCombinations.slice(startIndex, endIndex);
 
     // Get or create batch status
     const batchStatus = await getOrCreateBatchStatus(length);
-    batchStatus.totalCombinations = totalCombinations;
+    if (!batchStatus.totalCombinations) {
+        batchStatus.totalCombinations = totalCombinations;
+    }
 
-    Logger.info(`Generated ${totalCombinations} combinations`, {
+    Logger.info(`Worker ${workerId} processing ${combinations.length} combinations (${startIndex + 1} to ${endIndex})`, {
         context: {
             component: "CombinationProcessor",
+            workerId: `Worker-${workerId}`,
         },
     });
 
     // Process in batches to manage memory and avoid overwhelming the system
     for (let i = 0; i < combinations.length; i += batchSize) {
         const batch = combinations.slice(i, i + batchSize);
-        Logger.info(`Processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(totalCombinations/batchSize)}`, {
+        Logger.info(`Worker ${workerId} processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(combinations.length/batchSize)}`, {
             context: {
                 component: "CombinationProcessor",
+                workerId: `Worker-${workerId}`,
             },
         });
 
@@ -1178,9 +1193,10 @@ export async function processCombinationsWithSearch(
             // Check if combination was already processed
             const existingStatus = await getOrCreateStatusFile(combination);
             if (existingStatus?.status === 'completed') {
-                Logger.info(`Skipping already processed combination: ${combination}`, {
+                Logger.info(`Worker ${workerId} skipping already processed combination: ${combination}`, {
                     context: {
                         component: "CombinationProcessor",
+                        workerId: `Worker-${workerId}`,
                     },
                 });
                 continue;
@@ -1191,6 +1207,7 @@ export async function processCombinationsWithSearch(
                 combination,
                 status: 'pending',
                 startedAt: new Date().toISOString(),
+                workerId: `Worker-${workerId}`,
             };
 
             // Update status files
@@ -1202,6 +1219,7 @@ export async function processCombinationsWithSearch(
                 Logger.debug(`Processing combination: ${combination}`, {
                     context: {
                         component: "CombinationProcessor",
+                        workerId: `Worker-${workerId}`,
                     },
                 });
 
@@ -1217,6 +1235,7 @@ export async function processCombinationsWithSearch(
                 Logger.error(`Error processing combination: ${combination}`, {
                     context: {
                         component: "CombinationProcessor",
+                        workerId: `Worker-${workerId}`,
                     },
                     error,
                 });
@@ -1235,9 +1254,10 @@ export async function processCombinationsWithSearch(
         }
     }
 
-    Logger.info(`Completed processing all combinations of length ${length}`, {
+    Logger.info(`Worker ${workerId} completed processing assigned combinations`, {
         context: {
             component: "CombinationProcessor",
+            workerId: `Worker-${workerId}`,
         },
     });
 }
