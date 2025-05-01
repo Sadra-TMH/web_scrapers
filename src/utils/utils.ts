@@ -498,6 +498,7 @@ export async function handleAjaxFlow({
                     Cookie: cookies,
                 },
                 maxRedirects: 5,
+                timeout: TIMEOUT,
             }
         );
 
@@ -722,7 +723,7 @@ function extractPageInfo(html: string, url: string): ExtractedInfo {
 // Add these constants at the top of the file after imports
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 2000; // 2 seconds
-const TIMEOUT = 30000; // 30 seconds
+const TIMEOUT = 90000; // 90 seconds
 
 // Add this utility function for delay
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
