@@ -674,11 +674,12 @@ async function withSessionRetry<T>(
     }
 }
 
-// Modify executeSearch to use session management
-export async function executeSearch(searchQuery: string) {
+// Modify executeSearch to accept workerId
+export async function executeSearch(searchQuery: string, workerId?: string) {
     const searchContext = {
         searchQuery,
         component: "Search",
+        workerId,
     };
 
     try {
@@ -696,16 +697,16 @@ export async function executeSearch(searchQuery: string) {
         );
 
         if (result?.redirectURL) {
-            const redirectUrl = `${baseUrl}${result.redirectURL}`;
+            const shortUrl = new URL(baseUrl + result.redirectURL).pathname;
             Logger.debug(`Following redirect`, {
                 context: {
                     ...searchContext,
-                    url: redirectUrl,
+                    url: shortUrl,
                 },
             });
 
             await withSessionRetry(
-                () => makeRequestAndSaveCredentials(redirectUrl, searchPage, {
+                () => makeRequestAndSaveCredentials(baseUrl + result.redirectURL, searchPage, {
                     headers: {
                         ...CACHE_HEADERS,
                     },
@@ -733,7 +734,8 @@ export async function executeSearch(searchQuery: string) {
 
         const processedUrls = await processExtractedUrls(
             extractedUrls,
-            searchQuery
+            searchQuery,
+            workerId
         );
 
         const searchResults = {
@@ -808,9 +810,15 @@ async function main() {
         console.log(`Starting ${workers} workers for processing combinations of length ${length}...`);
         
         // Create promises for all workers
-        const workerPromises = Array.from({ length: workers }, (_, i) => 
-            processCombinationsWithSearch(executeSearch, length, workers, i)
-        );
+        const workerPromises = Array.from({ length: workers }, (_, i) => {
+            const workerId = `Worker-${i}`;
+            return processCombinationsWithSearch(
+                (combination: string) => executeSearch(combination, workerId),
+                length,
+                workers,
+                i
+            );
+        });
 
         // Wait for all workers to complete
         await Promise.all(workerPromises);

@@ -68,6 +68,9 @@ class Logger {
         const context = options?.context;
         let formattedMessage = `[${timestamp}] [${level.toUpperCase()}]`;
 
+        if (context?.workerId) {
+            formattedMessage += ` [${context.workerId}]`;
+        }
         if (context?.component) {
             formattedMessage += ` [${context.component}]`;
         }
@@ -731,7 +734,8 @@ const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 export async function fetchAndSaveHtml(
     url: string,
     searchQuery: string,
-    filename?: string
+    filename?: string,
+    workerId?: string
 ): Promise<{ html: string; info: ExtractedInfo }> {
     let lastError: Error | null = null;
     
@@ -741,12 +745,17 @@ export async function fetchAndSaveHtml(
             const credentials = await loadCredentials();
             let cookies = credentials?.[searchPage]?.cookies;
 
+            // Shorten URL for logging
+            const urlObj = new URL(url);
+            const shortUrl = urlObj.pathname + urlObj.search;
+
             if (!cookies) {
                 Logger.info("No existing cookies found, fetching new ones...", {
                     context: {
                         searchQuery,
                         component: "Auth",
-                        url,
+                        url: shortUrl,
+                        workerId,
                     },
                 });
                 cookies = await getInitialCookies();
@@ -777,12 +786,17 @@ export async function fetchAndSaveHtml(
         } catch (error) {
             lastError = error as Error;
             
+            // Shorten URL for logging
+            const urlObj = new URL(url);
+            const shortUrl = urlObj.pathname + urlObj.search;
+            
             // Log the retry attempt
             Logger.warn(`Attempt ${attempt}/${MAX_RETRIES} failed for URL`, {
                 context: {
                     searchQuery,
                     component: "URLProcessor",
-                    url,
+                    url: shortUrl,
+                    workerId,
                 },
                 error,
             });
@@ -821,7 +835,8 @@ async function writeExtractedInfoBatchToCsv(
     filePath: string,
     data: ExtractedInfo[],
     isFirstBatch: boolean,
-    searchQuery: string
+    searchQuery: string,
+    workerId?: string
 ): Promise<void> {
     // Define the order of columns
     const columns = [
@@ -863,6 +878,7 @@ async function writeExtractedInfoBatchToCsv(
                     searchQuery,
                     component: "CSV",
                     url: filePath,
+                    workerId,
                 },
             });
             csvContent = columns.join(",") + "\n";
@@ -890,6 +906,7 @@ async function writeExtractedInfoBatchToCsv(
                 searchQuery,
                 component: "CSV",
                 url: filePath,
+                workerId,
             },
         });
     } catch (error) {
@@ -898,6 +915,7 @@ async function writeExtractedInfoBatchToCsv(
                 searchQuery,
                 component: "CSV",
                 url: filePath,
+                workerId,
             },
             error,
         });
@@ -929,7 +947,8 @@ async function getCurrentRowCount(filePath: string): Promise<number> {
  */
 export async function processExtractedUrls(
     urls: string[],
-    searchQuery: string
+    searchQuery: string,
+    workerId?: string
 ): Promise<number> {
     const BATCH_SIZE = 50; // Reduced batch size
     const results: ExtractedInfo[] = [];
@@ -945,23 +964,30 @@ export async function processExtractedUrls(
         context: {
             searchQuery,
             component: "URLProcessor",
+            workerId,
         },
     });
 
     for (const [index, url] of urls.entries()) {
         try {
+            // Shorten URL for logging by extracting pathname
+            const urlObj = new URL(url);
+            const shortUrl = urlObj.pathname + urlObj.search;
+
             Logger.debug(`Processing URL ${index + 1}/${urls.length}`, {
                 context: {
                     searchQuery,
                     component: "URLProcessor",
-                    url,
+                    url: shortUrl,
+                    workerId,
                 },
             });
 
             const { info } = await fetchAndSaveHtml(
                 url,
                 searchQuery,
-                `page_${index + 1}`
+                `page_${index + 1}`,
+                workerId
             );
             
             results.push(info);
@@ -974,7 +1000,8 @@ export async function processExtractedUrls(
                     csvFilePath,
                     currentBatch,
                     index < BATCH_SIZE,
-                    searchQuery
+                    searchQuery,
+                    workerId
                 );
                 currentBatch = [];
                 
@@ -982,17 +1009,22 @@ export async function processExtractedUrls(
                 await delay(1000);
             }
         } catch (error) {
+            // Shorten URL for logging
+            const urlObj = new URL(url);
+            const shortUrl = urlObj.pathname + urlObj.search;
+
             Logger.error(`Failed to process URL`, {
                 context: {
                     searchQuery,
                     component: "URLProcessor",
-                    url,
+                    url: shortUrl,
+                    workerId,
                 },
                 error,
             });
             
             errors.push({
-                url,
+                url: shortUrl,
                 error: error instanceof Error ? error.message : "Unknown error",
                 attempts: MAX_RETRIES,
             });
@@ -1007,6 +1039,7 @@ export async function processExtractedUrls(
             context: {
                 searchQuery,
                 component: "URLProcessor",
+                workerId,
             },
         });
     }
@@ -1015,6 +1048,7 @@ export async function processExtractedUrls(
         context: {
             searchQuery,
             component: "URLProcessor",
+            workerId,
         },
     });
 
