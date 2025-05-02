@@ -4,7 +4,6 @@ import {
     writeJsonFile,
     saveCredentials,
     loadCredentials,
-    writeFile,
     FILE_DIR_PREFIX,
     CREDENTIALS_FILE,
 } from "./utils/fileUtils.js";
@@ -27,8 +26,7 @@ import { handleAjaxFlow } from "./utils/utils.js";
 import { extractAndSaveUrls } from "./utils/utils.js";
 import * as readline from 'readline';
 import { stdin as input, stdout as output } from 'node:process';
-import fs from "fs/promises";
-import * as cheerio from "cheerio";
+import { TIMEOUT } from "./utils/utils.js";
 
 async function makeRequestAndSaveCredentials(
     url: string,
@@ -464,6 +462,7 @@ async function flowAjaxCompany(searchQuery: string) {
                     Cookie: cookies,
                 },
                 maxRedirects: 5,
+                timeout: TIMEOUT,
             }
         );
 
@@ -552,6 +551,7 @@ async function flowAjaxFinal(searchQuery: string) {
                     Cookie: cookies,
                 },
                 maxRedirects: 5,
+                timeout: TIMEOUT,
             }
         );
 
