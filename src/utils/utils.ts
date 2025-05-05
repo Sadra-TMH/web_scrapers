@@ -29,7 +29,6 @@ interface LogContext {
   endIndex?: number;
   totalWorkers?: number;
   totalCombinationsProcessed?: number;
-  
 }
 
 interface LogOptions {
@@ -393,24 +392,26 @@ export async function extractFormCredentials(
 
     // Try to extract company info from script tags
     const companyInfoScript = $('script:contains("internalRegionId")').text();
-    
+
     if (companyInfoScript) {
       // Updated regex patterns to match the actual script structure
-      const ajaxIdentifierMatch = companyInfoScript.match(/apex\.widget\.report\.init\(\s*"[^"]+",\s*"([^"]+)"/);
-      const internalRegionIdMatch = companyInfoScript.match(/"internalRegionId":"(\d+)"/);
-
+      const ajaxIdentifierMatch = companyInfoScript.match(
+        /apex\.widget\.report\.init\(\s*"[^"]+",\s*"([^"]+)"/
+      );
+      const internalRegionIdMatch = companyInfoScript.match(
+        /"internalRegionId":"(\d+)"/
+      );
 
       if (ajaxIdentifierMatch && internalRegionIdMatch) {
         credentials.companyInfo = {
-          ajaxIdentifier: ajaxIdentifierMatch[1],
-          internalRegionId: internalRegionIdMatch[1]
+          ajaxIdentifier: parseEncodedString(ajaxIdentifierMatch[1]),
+          internalRegionId: internalRegionIdMatch[1],
         };
-
 
         Logger.debug(`Extracted company info credentials`, {
           context: {
-            component: "Credentials"
-          }
+            component: "Credentials",
+          },
         });
       }
     }
@@ -1337,6 +1338,8 @@ interface CompanyData {
   companyName: string;
   nationalId: string;
   registrationNumber: string;
+  postalCode?: string;
+  address?: string;
 }
 
 interface ProcessCompanyResult {
@@ -1367,22 +1370,45 @@ export async function processCompanyData(
     const companies: CompanyData[] = [];
 
     // Find all table rows except the header row
-    $("table.a-IRR-table tr")
-      .not(":first-child")
-      .each((_, row) => {
-        const $row = $(row);
-        const $companyLink = $row.find("td:first-child a.COMPANY");
+    const rows = $("table.a-IRR-table tr").not(":first-child");
 
-        if ($companyLink.length) {
-          const company: CompanyData = {
-            companyId: $companyLink.attr("id") || "",
-            companyName: $companyLink.text().trim(),
-            nationalId: $row.find("td:nth-child(2)").text().trim(),
-            registrationNumber: $row.find("td:nth-child(3)").text().trim(),
-          };
-          companies.push(company);
+    // Process each row and fetch additional details
+    for (const row of rows.toArray()) {
+      const $row = $(row);
+      const $companyLink = $row.find("td:first-child a.COMPANY");
+
+      if ($companyLink.length) {
+        const basicInfo: CompanyData = {
+          companyId: $companyLink.attr("id") || "",
+          companyName: $companyLink.text().trim(),
+          nationalId: $row.find("td:nth-child(2)").text().trim(),
+          registrationNumber: $row.find("td:nth-child(3)").text().trim(),
+        };
+
+        try {
+          // Fetch additional company details
+          const additionalInfo = await flowAjaxCompanyInfo(basicInfo.companyId);
+          if (additionalInfo) {
+            basicInfo.postalCode = additionalInfo.postalCode;
+            basicInfo.address = additionalInfo.address;
+          }
+        } catch (error) {
+          Logger.warn(
+            `Failed to fetch additional details for company ${basicInfo.companyId}`,
+            {
+              context: {
+                searchQuery,
+                component: "CompanyDataProcessor",
+                workerId,
+              },
+              error,
+            }
+          );
         }
-      });
+
+        companies.push(basicInfo);
+      }
+    }
 
     if (companies.length === 0) {
       Logger.warn(`No company data found in HTML`, {
@@ -1418,6 +1444,8 @@ export async function processCompanyData(
         "CompanyName",
         "NationalId",
         "RegistrationNumber",
+        "PostalCode",
+        "Address",
       ];
       csvContent = headers.join(",") + "\n";
       Logger.info(`Creating new CSV file with headers`, {
@@ -1437,6 +1465,8 @@ export async function processCompanyData(
           `"${company.companyName.replace(/"/g, '""')}"`,
           company.nationalId,
           company.registrationNumber,
+          `"${(company.postalCode || "").replace(/"/g, '""')}"`,
+          `"${(company.address || "").replace(/"/g, '""')}"`,
         ].join(",") + "\n";
     });
 
@@ -1489,7 +1519,39 @@ export async function processCompanyData(
 // Export the new functions
 export { getPaginationStatus };
 
-async function flowAjaxCompanyInfo(companyId: string) {
+interface CompanyDetails {
+  name: string;
+  registrationNumber: string;
+  nationalId: string;
+  postalCode: string;
+  address: string;
+}
+
+function extractCompanyDetails(html: string): CompanyDetails | null {
+  try {
+    const $ = cheerio.load(html);
+
+    return {
+      name: $('td[headers="NAME"]').text().trim(),
+      registrationNumber: $('td[headers="SABTNUMBER"]').text().trim(),
+      nationalId: $('td[headers="SABTNATIONALID"]').text().trim(),
+      postalCode: $('td[headers="POSTALCODE"]').text().trim(),
+      address: $('td[headers="ADDRESS"]').text().trim(),
+    };
+  } catch (error) {
+    Logger.error(`Failed to extract company details from HTML`, {
+      context: {
+        component: "CompanyDetails",
+      },
+      error,
+    });
+    return null;
+  }
+}
+
+async function flowAjaxCompanyInfo(
+  companyId: string
+): Promise<CompanyDetails | null> {
   try {
     const credentials = await loadCredentials();
     let cookies = credentials?.[searchPage]?.cookies;
@@ -1560,7 +1622,19 @@ async function flowAjaxCompanyInfo(companyId: string) {
       },
     });
 
-    return ajaxResponse.data;
+    if (ajaxResponse.data) {
+    //   const searchResults = {
+    //     initialResult: ajaxResponse.data,
+    //   };
+
+    //   await writeJsonFile(
+    //     `src/files/آ/company_${companyId}.json`,
+    //     searchResults
+    //   );
+      return extractCompanyDetails(ajaxResponse.data);
+    }
+
+    return null;
   } catch (error) {
     Logger.error(`Flow ajax company info failed`, {
       context: {
@@ -1571,3 +1645,6 @@ async function flowAjaxCompanyInfo(companyId: string) {
     throw error;
   }
 }
+
+// Export the new types and functions
+export { CompanyDetails, extractCompanyDetails, flowAjaxCompanyInfo };
