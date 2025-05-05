@@ -29,6 +29,10 @@ interface LogContext {
   endIndex?: number;
   totalWorkers?: number;
   totalCombinationsProcessed?: number;
+  // Company context
+  companyId?: string;
+  name?: string;
+  registrationNumber?: string;
 }
 
 interface LogOptions {
@@ -1090,8 +1094,8 @@ export async function processExtractedUrls(
 
 export function generateCombinationsIterative(maxLength: number): string[] {
   const persianLetters = [
-    "آ",
-    "ا",
+    // "آ",
+    // "ا",
     "ب",
     "پ",
     "ت",
@@ -1387,7 +1391,10 @@ export async function processCompanyData(
 
         try {
           // Fetch additional company details
-          const additionalInfo = await flowAjaxCompanyInfo(basicInfo.companyId);
+          const additionalInfo = await flowAjaxCompanyInfo(
+            basicInfo.companyId,
+            searchQuery
+          );
           if (additionalInfo) {
             basicInfo.postalCode = additionalInfo.postalCode;
             basicInfo.address = additionalInfo.address;
@@ -1530,14 +1537,14 @@ interface CompanyDetails {
 function extractCompanyDetails(html: string): CompanyDetails | null {
   try {
     const $ = cheerio.load(html);
-
-    return {
+    const details = {
       name: $('td[headers="NAME"]').text().trim(),
       registrationNumber: $('td[headers="SABTNUMBER"]').text().trim(),
       nationalId: $('td[headers="SABTNATIONALID"]').text().trim(),
       postalCode: $('td[headers="POSTALCODE"]').text().trim(),
       address: $('td[headers="ADDRESS"]').text().trim(),
     };
+    return details;
   } catch (error) {
     Logger.error(`Failed to extract company details from HTML`, {
       context: {
@@ -1550,22 +1557,29 @@ function extractCompanyDetails(html: string): CompanyDetails | null {
 }
 
 async function flowAjaxCompanyInfo(
-  companyId: string
+  companyId: string,
+  searchQuery: string
 ): Promise<CompanyDetails | null> {
+  const context = {
+    component: "CompanyInfo",
+    searchQuery,
+    companyId,
+  };
+
   try {
     const credentials = await loadCredentials();
     let cookies = credentials?.[searchPage]?.cookies;
 
     if (!cookies) {
-      Logger.info(`No existing cookies found, fetching new ones`, {
-        context: {
-          component: "Auth",
-        },
-      });
+      Logger.info(`No existing cookies found, fetching new ones`, { context });
       cookies = await getInitialCookies();
     }
 
     const formCredentials = credentials?.[searchPage]?.formData;
+    if (!formCredentials?.companyInfo) {
+      Logger.error(`Missing company info credentials`, { context });
+      return null;
+    }
 
     // Create FormData instance
     const formData = new FormData();
@@ -1582,6 +1596,7 @@ async function flowAjaxCompanyInfo(
       "x01",
       formCredentials?.companyInfo?.internalRegionId || ""
     );
+
     // Prepare the JSON payload
     const jsonPayload = {
       pageItems: {
@@ -1616,30 +1631,22 @@ async function flowAjaxCompanyInfo(
       }
     );
 
-    Logger.info(`Flow ajax company info completed`, {
-      context: {
-        component: "Search",
-      },
-    });
-
-    if (ajaxResponse.data) {
-    //   const searchResults = {
-    //     initialResult: ajaxResponse.data,
-    //   };
-
-    //   await writeJsonFile(
-    //     `src/files/آ/company_${companyId}.json`,
-    //     searchResults
-    //   );
-      return extractCompanyDetails(ajaxResponse.data);
+    if (!ajaxResponse.data) {
+      Logger.warn(`No data received from company info request`, { context });
+      return null;
     }
 
-    return null;
+    const details = extractCompanyDetails(ajaxResponse.data);
+    if (details) {
+      Logger.info(`Successfully extracted company details for id: ${companyId}`, {
+        context,
+      });
+    }
+
+    return details;
   } catch (error) {
-    Logger.error(`Flow ajax company info failed`, {
-      context: {
-        component: "Search",
-      },
+    Logger.error(`Failed to fetch company info`, {
+      context,
       error,
     });
     throw error;

@@ -726,7 +726,7 @@ export async function executeSearch(searchQuery: string, workerId?: string) {
 
         // Check for existing pagination status
         let minRow = 1;
-        const perPage = 2; // Increased for efficiency
+        const perPage = 200; // Increased for efficiency
         let totalCompanies = 0;
         let isFirstBatch = true;
 
