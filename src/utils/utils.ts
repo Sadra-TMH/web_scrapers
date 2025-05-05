@@ -15,6 +15,20 @@ interface LogContext {
     component?: string;
     url?: string;
     workerId?: string;
+    currentMinRow?: number;
+    totalProcessed?: number;
+    // Setup context
+    input?: string;
+    length?: number;
+    totalCombinations?: number;
+    // Worker context
+    workers?: number;
+    combinationLength?: number;
+    combinationsAssigned?: number;
+    startIndex?: number;
+    endIndex?: number;
+    totalWorkers?: number;
+    totalCombinationsProcessed?: number;
 }
 
 interface LogOptions {
@@ -1089,212 +1103,85 @@ export function generateCombinationsIterative(maxLength: number): string[] {
 }
 
 // Add these types for status tracking
+interface CompanyPaginationStatus {
+    currentMinRow: number;
+    perPage: number;
+    totalProcessed: number;
+    isFirstBatch: boolean;
+    lastUpdated: string;
+}
+
 interface CombinationStatus {
     combination: string;
     status: 'pending' | 'completed' | 'failed';
-    startedAt?: string;
+    startedAt: string;
     completedAt?: string;
     error?: string;
     workerId?: string;
+    paginationStatus?: CompanyPaginationStatus;
 }
 
-interface BatchStatus {
-    length: number;
-    totalCombinations: number;
-    processedCount: number;
-    failedCount: number;
-    lastProcessed?: string;
-    startedAt: string;
-    lastUpdated: string;
-    combinations: { [key: string]: CombinationStatus };
-}
-
-async function getOrCreateStatusFile(combination: string): Promise<CombinationStatus | null> {
+async function updatePaginationStatus(
+    searchQuery: string,
+    paginationData: CompanyPaginationStatus
+): Promise<void> {
     try {
-        const queryFolder = await getQueryFolder(combination);
+        const queryFolder = await getQueryFolder(searchQuery);
         const statusPath = `${queryFolder}status.json`;
         
+        // Read existing status
+        let status: CombinationStatus;
         try {
             const statusContent = await fs.readFile(statusPath, 'utf-8');
-            return JSON.parse(statusContent);
-        } catch (error) {
-            // If file doesn't exist or can't be parsed, return null
-            return null;
-        }
-    } catch (error) {
-        Logger.error(`Failed to read status file`, {
-            context: {
-                component: "StatusManager",
-                searchQuery: combination,
-            },
-            error,
-        });
-        return null;
-    }
-}
-
-async function updateStatusFile(combination: string, status: CombinationStatus): Promise<void> {
-    try {
-        const queryFolder = await getQueryFolder(combination);
-        const statusPath = `${queryFolder}status.json`;
-        await writeJsonFile(statusPath, status);
-    } catch (error) {
-        Logger.error(`Failed to update status file`, {
-            context: {
-                component: "StatusManager",
-                searchQuery: combination,
-            },
-            error,
-        });
-    }
-}
-
-async function getOrCreateBatchStatus(length: number): Promise<BatchStatus> {
-    const batchStatusPath = `${FILE_DIR_PREFIX}batch_status_${length}.json`;
-    
-    try {
-        const content = await fs.readFile(batchStatusPath, 'utf-8');
-        return JSON.parse(content);
-    } catch (error) {
-        // If file doesn't exist or can't be parsed, create new batch status
-        const newStatus: BatchStatus = {
-            length,
-            totalCombinations: 0, // Will be set later
-            processedCount: 0,
-            failedCount: 0,
-            startedAt: new Date().toISOString(),
-            lastUpdated: new Date().toISOString(),
-            combinations: {},
-        };
-        await writeJsonFile(batchStatusPath, newStatus);
-        return newStatus;
-    }
-}
-
-async function updateBatchStatus(length: number, status: BatchStatus): Promise<void> {
-    const batchStatusPath = `${FILE_DIR_PREFIX}batch_status_${length}.json`;
-    status.lastUpdated = new Date().toISOString();
-    await writeJsonFile(batchStatusPath, status);
-}
-
-export async function processCombinationsWithSearch(
-    searchFunction: (combination: string) => Promise<any>,
-    length: number,
-    workers: number = 1,
-    workerId: number = 0,
-    batchSize: number = 100
-): Promise<void> {
-    Logger.info(`Starting combination processing for length ${length} on worker ${workerId}`, {
-        context: {
-            component: "CombinationProcessor",
-            workerId: `Worker-${workerId}`,
-        },
-    });
-
-    const allCombinations = generateCombinationsIterative(length);
-    const totalCombinations = allCombinations.length;
-    
-    // Calculate the range for this worker
-    const combinationsPerWorker = Math.ceil(totalCombinations / workers);
-    const startIndex = workerId * combinationsPerWorker;
-    const endIndex = Math.min((workerId + 1) * combinationsPerWorker, totalCombinations);
-    const combinations = allCombinations.slice(startIndex, endIndex);
-
-    // Get or create batch status
-    const batchStatus = await getOrCreateBatchStatus(length);
-    if (!batchStatus.totalCombinations) {
-        batchStatus.totalCombinations = totalCombinations;
-    }
-
-    Logger.info(`Worker ${workerId} processing ${combinations.length} combinations (${startIndex + 1} to ${endIndex})`, {
-        context: {
-            component: "CombinationProcessor",
-            workerId: `Worker-${workerId}`,
-        },
-    });
-
-    // Process in batches to manage memory and avoid overwhelming the system
-    for (let i = 0; i < combinations.length; i += batchSize) {
-        const batch = combinations.slice(i, i + batchSize);
-        Logger.info(`Worker ${workerId} processing batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(combinations.length/batchSize)}`, {
-            context: {
-                component: "CombinationProcessor",
-                workerId: `Worker-${workerId}`,
-            },
-        });
-
-        // Process each combination in the current batch
-        for (const combination of batch) {
-            // Check if combination was already processed
-            const existingStatus = await getOrCreateStatusFile(combination);
-            if (existingStatus?.status === 'completed') {
-                Logger.info(`Worker ${workerId} skipping already processed combination: ${combination}`, {
-                    context: {
-                        component: "CombinationProcessor",
-                        workerId: `Worker-${workerId}`,
-                    },
-                });
-                continue;
-            }
-
-            // Create new status for this combination
-            const combinationStatus: CombinationStatus = {
-                combination,
+            status = JSON.parse(statusContent);
+        } catch {
+            status = {
+                combination: searchQuery,
                 status: 'pending',
                 startedAt: new Date().toISOString(),
-                workerId: `Worker-${workerId}`,
             };
-
-            // Update status files
-            await updateStatusFile(combination, combinationStatus);
-            batchStatus.combinations[combination] = combinationStatus;
-            await updateBatchStatus(length, batchStatus);
-
-            try {
-                Logger.debug(`Processing combination: ${combination}`, {
-                    context: {
-                        component: "CombinationProcessor",
-                        workerId: `Worker-${workerId}`,
-                    },
-                });
-
-                await searchFunction(combination);
-
-                // Update status to completed
-                combinationStatus.status = 'completed';
-                combinationStatus.completedAt = new Date().toISOString();
-                batchStatus.processedCount++;
-                batchStatus.lastProcessed = combination;
-
-            } catch (error) {
-                Logger.error(`Error processing combination: ${combination}`, {
-                    context: {
-                        component: "CombinationProcessor",
-                        workerId: `Worker-${workerId}`,
-                    },
-                    error,
-                });
-
-                // Update status to failed
-                combinationStatus.status = 'failed';
-                combinationStatus.completedAt = new Date().toISOString();
-                combinationStatus.error = error instanceof Error ? error.message : 'Unknown error';
-                batchStatus.failedCount++;
-            }
-
-            // Update both status files
-            await updateStatusFile(combination, combinationStatus);
-            batchStatus.combinations[combination] = combinationStatus;
-            await updateBatchStatus(length, batchStatus);
         }
-    }
 
-    Logger.info(`Worker ${workerId} completed processing assigned combinations`, {
-        context: {
-            component: "CombinationProcessor",
-            workerId: `Worker-${workerId}`,
-        },
-    });
+        // Update with pagination data
+        status.paginationStatus = {
+            ...paginationData,
+            lastUpdated: new Date().toISOString()
+        };
+
+        // Write updated status
+        await writeJsonFile(statusPath, status);
+
+        Logger.debug(`Updated pagination status`, {
+            context: {
+                searchQuery,
+                component: "StatusManager",
+                currentMinRow: paginationData.currentMinRow,
+                totalProcessed: paginationData.totalProcessed
+            }
+        });
+    } catch (error) {
+        Logger.error(`Failed to update pagination status`, {
+            context: {
+                searchQuery,
+                component: "StatusManager",
+            },
+            error
+        });
+    }
+}
+
+async function getPaginationStatus(searchQuery: string): Promise<CompanyPaginationStatus | null> {
+    try {
+        const queryFolder = await getQueryFolder(searchQuery);
+        const statusPath = `${queryFolder}status.json`;
+        
+        const statusContent = await fs.readFile(statusPath, 'utf-8');
+        const status: CombinationStatus = JSON.parse(statusContent);
+        
+        return status.paginationStatus || null;
+    } catch {
+        return null;
+    }
 }
 
 // Add these session management utilities after the existing constants
@@ -1402,18 +1289,29 @@ interface CompanyData {
     registrationNumber: string;
 }
 
+interface ProcessCompanyResult {
+    processedCount: number;
+    totalProcessed: number;
+}
+
 /**
  * Processes company HTML data and saves it to a CSV file
  * @param html The HTML content containing company data
  * @param searchQuery The search query for folder organization
+ * @param isFirstBatch Whether this is the first batch of data
+ * @param currentMinRow The current minimum row index
+ * @param perPage The number of rows per page
  * @param workerId Optional worker ID for logging
- * @returns Number of companies processed
+ * @returns Object containing the number of companies processed in this batch and total processed
  */
 export async function processCompanyData(
     html: string,
     searchQuery: string,
+    isFirstBatch: boolean,
+    currentMinRow: number,
+    perPage: number,
     workerId?: string
-): Promise<number> {
+): Promise<ProcessCompanyResult> {
     try {
         const $ = cheerio.load(html);
         const companies: CompanyData[] = [];
@@ -1442,25 +1340,37 @@ export async function processCompanyData(
                     workerId,
                 }
             });
-            return 0;
+            return { processedCount: 0, totalProcessed: 0 };
         }
 
         // Create the query folder and CSV file path
         const queryFolder = await getQueryFolder(searchQuery);
         const csvFilePath = `${queryFolder}company_data.csv`;
 
-        // Check if file exists to determine if we need headers
-        let fileExists = false;
-        try {
-            await fs.access(csvFilePath);
-            fileExists = true;
-        } catch {
-            fileExists = false;
+        // Get current total if file exists
+        let currentTotal = 0;
+        if (!isFirstBatch) {
+            try {
+                const content = await fs.readFile(csvFilePath, 'utf-8');
+                currentTotal = content.split('\n').length - 2; // Subtract header and last empty line
+            } catch {
+                currentTotal = 0;
+            }
         }
 
         // Prepare CSV content
-        const headers = ['CompanyId', 'CompanyName', 'NationalId', 'RegistrationNumber'];
-        let csvContent = fileExists ? '' : headers.join(',') + '\n';
+        let csvContent = '';
+        if (isFirstBatch) {
+            const headers = ['CompanyId', 'CompanyName', 'NationalId', 'RegistrationNumber'];
+            csvContent = headers.join(',') + '\n';
+            Logger.info(`Creating new CSV file with headers`, {
+                context: {
+                    searchQuery,
+                    component: "CompanyDataProcessor",
+                    workerId,
+                }
+            });
+        }
 
         // Add company data
         companies.forEach(company => {
@@ -1472,10 +1382,25 @@ export async function processCompanyData(
             ].join(',') + '\n';
         });
 
-        // Append to file
-        await fs.appendFile(csvFilePath, csvContent, 'utf-8');
+        // Write or append to file
+        if (isFirstBatch) {
+            await fs.writeFile(csvFilePath, csvContent, 'utf-8');
+        } else {
+            await fs.appendFile(csvFilePath, csvContent, 'utf-8');
+        }
 
-        Logger.info(`Processed ${companies.length} companies and saved to CSV`, {
+        const totalProcessed = currentTotal + companies.length;
+
+        // Update pagination status
+        await updatePaginationStatus(searchQuery, {
+            currentMinRow,
+            perPage,
+            totalProcessed,
+            isFirstBatch,
+            lastUpdated: new Date().toISOString()
+        });
+
+        Logger.info(`Processed batch of ${companies.length} companies (Total: ${totalProcessed})`, {
             context: {
                 searchQuery,
                 component: "CompanyDataProcessor",
@@ -1483,7 +1408,10 @@ export async function processCompanyData(
             }
         });
 
-        return companies.length;
+        return { 
+            processedCount: companies.length,
+            totalProcessed: totalProcessed
+        };
     } catch (error) {
         Logger.error(`Failed to process company data`, {
             context: {
@@ -1496,6 +1424,9 @@ export async function processCompanyData(
         throw error;
     }
 }
+
+// Export the new functions
+export { getPaginationStatus };
 
 
 

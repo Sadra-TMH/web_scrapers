@@ -19,8 +19,9 @@ import {
     processExtractedUrls,
     getQueryFolder,
     Logger,
-    processCombinationsWithSearch,
+    getPaginationStatus,
     processCompanyData,
+    generateCombinationsIterative,
 } from "./utils/utils.js";
 import { extractFormCredentials } from "./utils/utils.js";
 import { handleAjaxFlow } from "./utils/utils.js";
@@ -388,7 +389,7 @@ async function flowAjax3(searchQuery: string) {
     }
 }
 
-async function flowAjaxCompany(searchQuery: string) {
+async function flowAjaxCompany(searchQuery: string, perPage: number = 5, minRow: number = 1) {
     try {
         const credentials = await loadCredentials();
         let cookies = credentials?.[searchPage]?.cookies;
@@ -416,8 +417,10 @@ async function flowAjaxCompany(searchQuery: string) {
             `PLUGIN=${formCredentials?.companyRegionData?.ajaxIdentifier}`
         );
         formData.append("p_widget_name", "worksheet");
-        formData.append("p_widget_mod", "PULL");
-        formData.append("p_widget_num_return", "5");
+        formData.append("p_widget_mod", "ACTION");
+        formData.append("p_widget_action", "PAGE");
+        formData.append("p_widget_action_mod", `pgR_min_row=${minRow}max_rows=${perPage}rows_fetched=${perPage}`);
+        formData.append("p_widget_num_return", perPage.toString());
         formData.append("x01", formCredentials?.companyRegionData?.worksheetId || "");
         formData.append("x02", formCredentials?.companyRegionData?.reportId || "");
         // Prepare the JSON payload
@@ -721,36 +724,82 @@ export async function executeSearch(searchQuery: string, workerId?: string) {
             searchContext
         );
 
-        // const resultAjax = await withSessionRetry(
-        //     () => flowAjaxFinal(searchQuery),
-        //     searchContext
-        // );
+        // Check for existing pagination status
+        let minRow = 1;
+        const perPage = 2000; // Increased for efficiency
+        let totalCompanies = 0;
+        let isFirstBatch = true;
 
-        // // Extract and save URLs from the final AJAX response
-        // const extractedUrls = await extractAndSaveUrls(resultAjax, searchQuery);
-        
-        // Logger.info(`URL extraction completed`, {
-        //     context: searchContext,
-        // });
+        // Try to resume from previous state
+        const paginationStatus = await getPaginationStatus(searchQuery);
+        if (paginationStatus) {
+            Logger.info(`Resuming company data extraction from row ${paginationStatus.currentMinRow}`, {
+                context: {
+                    ...searchContext,
+                    component: "CompanyPagination"
+                }
+            });
+            
+            minRow = paginationStatus.currentMinRow;
+            totalCompanies = paginationStatus.totalProcessed;
+            isFirstBatch = paginationStatus.isFirstBatch;
+        } else {
+            Logger.info(`Starting new company data extraction`, {
+                context: {
+                    ...searchContext,
+                    component: "CompanyPagination"
+                }
+            });
+        }
 
-        // const processedUrls = await processExtractedUrls(
-        //     extractedUrls,
-        //     searchQuery,
-        //     workerId
-        // );
+        while (true) {
+            Logger.info(`Fetching companies batch starting from row ${minRow}`, {
+                context: {
+                    ...searchContext,
+                    component: "CompanyPagination"
+                }
+            });
 
-        const resultAjaxCompany = await withSessionRetry(
-            () => flowAjaxCompany(searchQuery),
-            searchContext
-        );
+            const resultAjaxCompany = await withSessionRetry(
+                () => flowAjaxCompany(searchQuery, perPage, minRow),
+                searchContext
+            );
 
-        // Process company data
-        await processCompanyData(resultAjaxCompany, searchQuery, workerId);
+            // Process the batch
+            const { processedCount, totalProcessed } = await processCompanyData(
+                resultAjaxCompany,
+                searchQuery,
+                isFirstBatch,
+                minRow,
+                perPage,
+                workerId
+            );
+
+            totalCompanies = totalProcessed;
+            
+            // If we got fewer results than requested, we've reached the end
+            if (processedCount < perPage) {
+                Logger.info(`Completed company data extraction with ${totalCompanies} total companies`, {
+                    context: {
+                        ...searchContext,
+                        component: "CompanyPagination"
+                    }
+                });
+                break;
+            }
+
+            // Prepare for next batch
+            minRow += perPage;
+            isFirstBatch = false;
+
+            // Add a small delay to prevent overwhelming the server
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
 
         const searchResults = {
             initialResult: result,
             ajax2: resultAjax2,
-            resultAjaxCompany
+            totalCompanies,
             // ajaxFinal: resultAjax,
             // extractedUrls,
             // processedUrls,
@@ -793,7 +842,12 @@ async function main() {
         const length = parseInt(lengthStr);
         
         if (isNaN(length) || length < 1) {
-            console.error('Please enter a valid positive number');
+            Logger.error('Invalid input: Please enter a valid positive number', {
+                context: {
+                    component: "Setup",
+                    input: lengthStr
+                }
+            });
             return;
         }
 
@@ -802,13 +856,24 @@ async function main() {
         const workers = parseInt(workersStr);
 
         if (isNaN(workers) || workers < 1) {
-            console.error('Please enter a valid positive number for workers');
+            Logger.error('Invalid input: Please enter a valid positive number for workers', {
+                context: {
+                    component: "Setup",
+                    input: workersStr
+                }
+            });
             return;
         }
 
         // Warn if length is large
         if (length > 3) {
-            console.warn(`Warning: Length ${length} will generate ${Math.pow(33, length)} combinations!`);
+            Logger.warn(`Large combination length detected`, {
+                context: {
+                    component: "Setup",
+                    length,
+                    totalCombinations: Math.pow(33, length)
+                }
+            });
             const confirm = await promptInput('Are you sure you want to continue? (y/n): ');
             
             if (confirm.toLowerCase() !== 'y') {
@@ -816,26 +881,65 @@ async function main() {
             }
         }
 
+        // Generate all combinations
+        const allCombinations = generateCombinationsIterative(length);
+        const totalCombinations = allCombinations.length;
+
         // Start workers
-        console.log(`Starting ${workers} workers for processing combinations of length ${length}...`);
+        Logger.info(`Initializing worker distribution`, {
+            context: {
+                component: "WorkerManager",
+                workers,
+                totalCombinations,
+                combinationLength: length
+            }
+        });
+        
+        // Distribute combinations among workers
+        const combinationsPerWorker = Math.ceil(totalCombinations / workers);
         
         // Create promises for all workers
         const workerPromises = Array.from({ length: workers }, (_, i) => {
             const workerId = `Worker-${i}`;
-            return processCombinationsWithSearch(
-                (combination: string) => executeSearch(combination, workerId),
-                length,
-                workers,
-                i
-            );
+            const startIndex = i * combinationsPerWorker;
+            const endIndex = Math.min((i + 1) * combinationsPerWorker, totalCombinations);
+            const workerCombinations = allCombinations.slice(startIndex, endIndex);
+
+            Logger.info(`Initializing worker`, {
+                context: {
+                    component: "WorkerManager",
+                    workerId,
+                    combinationsAssigned: workerCombinations.length,
+                    startIndex,
+                    endIndex
+                }
+            });
+
+            // Process combinations sequentially for each worker
+            return async function processWorkerCombinations() {
+                for (const combination of workerCombinations) {
+                    await executeSearch(combination, workerId);
+                }
+            }();
         });
 
         // Wait for all workers to complete
         await Promise.all(workerPromises);
-        console.log('All workers have completed their tasks.');
+        Logger.info('All workers have completed their tasks', {
+            context: {
+                component: "WorkerManager",
+                totalWorkers: workers,
+                totalCombinationsProcessed: totalCombinations
+            }
+        });
 
     } catch (error) {
-        console.error('An error occurred:', error);
+        Logger.error('Main process execution failed', {
+            context: {
+                component: "Main"
+            },
+            error
+        });
     } finally {
         rl.close();
     }
