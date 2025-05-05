@@ -20,6 +20,7 @@ import {
     getQueryFolder,
     Logger,
     processCombinationsWithSearch,
+    processCompanyData,
 } from "./utils/utils.js";
 import { extractFormCredentials } from "./utils/utils.js";
 import { handleAjaxFlow } from "./utils/utils.js";
@@ -720,30 +721,39 @@ export async function executeSearch(searchQuery: string, workerId?: string) {
             searchContext
         );
 
-        const resultAjax = await withSessionRetry(
-            () => flowAjaxFinal(searchQuery),
+        // const resultAjax = await withSessionRetry(
+        //     () => flowAjaxFinal(searchQuery),
+        //     searchContext
+        // );
+
+        // // Extract and save URLs from the final AJAX response
+        // const extractedUrls = await extractAndSaveUrls(resultAjax, searchQuery);
+        
+        // Logger.info(`URL extraction completed`, {
+        //     context: searchContext,
+        // });
+
+        // const processedUrls = await processExtractedUrls(
+        //     extractedUrls,
+        //     searchQuery,
+        //     workerId
+        // );
+
+        const resultAjaxCompany = await withSessionRetry(
+            () => flowAjaxCompany(searchQuery),
             searchContext
         );
 
-        // Extract and save URLs from the final AJAX response
-        const extractedUrls = await extractAndSaveUrls(resultAjax, searchQuery);
-        
-        Logger.info(`URL extraction completed`, {
-            context: searchContext,
-        });
-
-        const processedUrls = await processExtractedUrls(
-            extractedUrls,
-            searchQuery,
-            workerId
-        );
+        // Process company data
+        await processCompanyData(resultAjaxCompany, searchQuery, workerId);
 
         const searchResults = {
             initialResult: result,
             ajax2: resultAjax2,
-            ajaxFinal: resultAjax,
-            extractedUrls,
-            processedUrls,
+            resultAjaxCompany
+            // ajaxFinal: resultAjax,
+            // extractedUrls,
+            // processedUrls,
         };
         
         await writeJsonFile(`${queryFolder}search_results.json`, searchResults);

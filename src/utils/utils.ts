@@ -1395,5 +1395,107 @@ async function withSessionRetry<T>(
     }
 }
 
+interface CompanyData {
+    companyId: string;
+    companyName: string;
+    nationalId: string;
+    registrationNumber: string;
+}
+
+/**
+ * Processes company HTML data and saves it to a CSV file
+ * @param html The HTML content containing company data
+ * @param searchQuery The search query for folder organization
+ * @param workerId Optional worker ID for logging
+ * @returns Number of companies processed
+ */
+export async function processCompanyData(
+    html: string,
+    searchQuery: string,
+    workerId?: string
+): Promise<number> {
+    try {
+        const $ = cheerio.load(html);
+        const companies: CompanyData[] = [];
+
+        // Find all table rows except the header row
+        $('table.a-IRR-table tr').not(':first-child').each((_, row) => {
+            const $row = $(row);
+            const $companyLink = $row.find('td:first-child a.COMPANY');
+            
+            if ($companyLink.length) {
+                const company: CompanyData = {
+                    companyId: $companyLink.attr('id') || '',
+                    companyName: $companyLink.text().trim(),
+                    nationalId: $row.find('td:nth-child(2)').text().trim(),
+                    registrationNumber: $row.find('td:nth-child(3)').text().trim()
+                };
+                companies.push(company);
+            }
+        });
+
+        if (companies.length === 0) {
+            Logger.warn(`No company data found in HTML`, {
+                context: {
+                    searchQuery,
+                    component: "CompanyDataProcessor",
+                    workerId,
+                }
+            });
+            return 0;
+        }
+
+        // Create the query folder and CSV file path
+        const queryFolder = await getQueryFolder(searchQuery);
+        const csvFilePath = `${queryFolder}company_data.csv`;
+
+        // Check if file exists to determine if we need headers
+        let fileExists = false;
+        try {
+            await fs.access(csvFilePath);
+            fileExists = true;
+        } catch {
+            fileExists = false;
+        }
+
+        // Prepare CSV content
+        const headers = ['CompanyId', 'CompanyName', 'NationalId', 'RegistrationNumber'];
+        let csvContent = fileExists ? '' : headers.join(',') + '\n';
+
+        // Add company data
+        companies.forEach(company => {
+            csvContent += [
+                company.companyId,
+                `"${company.companyName.replace(/"/g, '""')}"`,
+                company.nationalId,
+                company.registrationNumber
+            ].join(',') + '\n';
+        });
+
+        // Append to file
+        await fs.appendFile(csvFilePath, csvContent, 'utf-8');
+
+        Logger.info(`Processed ${companies.length} companies and saved to CSV`, {
+            context: {
+                searchQuery,
+                component: "CompanyDataProcessor",
+                workerId,
+            }
+        });
+
+        return companies.length;
+    } catch (error) {
+        Logger.error(`Failed to process company data`, {
+            context: {
+                searchQuery,
+                component: "CompanyDataProcessor",
+                workerId,
+            },
+            error
+        });
+        throw error;
+    }
+}
+
 
 
