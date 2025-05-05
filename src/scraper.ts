@@ -695,7 +695,7 @@ export async function executeSearch(searchQuery: string, workerId?: string) {
         const queryFolder = await getQueryFolder(searchQuery);
 
         // Wrap each operation with session retry
-        const result = await withSessionRetry(
+        let result = await withSessionRetry(
             () => flowAccept(searchQuery),
             searchContext
         );
@@ -719,14 +719,14 @@ export async function executeSearch(searchQuery: string, workerId?: string) {
             );
         }
 
-        const resultAjax2 = await withSessionRetry(
+        let resultAjax2 = await withSessionRetry(
             () => flowAjax2(searchQuery),
             searchContext
         );
 
         // Check for existing pagination status
         let minRow = 1;
-        const perPage = 200; // Increased for efficiency
+        const perPage = 200;
         let totalCompanies = 0;
         let isFirstBatch = true;
 
@@ -760,7 +760,7 @@ export async function executeSearch(searchQuery: string, workerId?: string) {
                 }
             });
 
-            const resultAjaxCompany = await withSessionRetry(
+            let resultAjaxCompany = await withSessionRetry(
                 () => flowAjaxCompany(searchQuery, perPage, minRow),
                 searchContext
             );
@@ -774,6 +774,9 @@ export async function executeSearch(searchQuery: string, workerId?: string) {
                 perPage,
                 workerId
             );
+
+            // Clear the response data
+            resultAjaxCompany = null;
 
             totalCompanies = totalProcessed;
             
@@ -796,16 +799,16 @@ export async function executeSearch(searchQuery: string, workerId?: string) {
             await new Promise(resolve => setTimeout(resolve, 1000));
         }
 
+        // Save minimal search results
         const searchResults = {
-            initialResult: result,
-            ajax2: resultAjax2,
             totalCompanies,
-            // ajaxFinal: resultAjax,
-            // extractedUrls,
-            // processedUrls,
         };
         
         await writeJsonFile(`${queryFolder}search_results.json`, searchResults);
+
+        // Clear variables
+        result = null;
+        resultAjax2 = null;
 
         Logger.info(`Search execution completed`, {
             context: searchContext,
@@ -898,7 +901,7 @@ async function main() {
         // Distribute combinations among workers
         const combinationsPerWorker = Math.ceil(totalCombinations / workers);
         
-        // Create promises for all workers
+        // Process combinations in chunks for each worker
         const workerPromises = Array.from({ length: workers }, (_, i) => {
             const workerId = `Worker-${i}`;
             const startIndex = i * combinationsPerWorker;
@@ -915,16 +918,31 @@ async function main() {
                 }
             });
 
-            // Process combinations sequentially for each worker
+            // Process combinations in chunks
             return async function processWorkerCombinations() {
-                for (const combination of workerCombinations) {
-                    await executeSearch(combination, workerId);
+                const CHUNK_SIZE = 10;
+                for (let j = 0; j < workerCombinations.length; j += CHUNK_SIZE) {
+                    const chunk = workerCombinations.slice(j, Math.min(j + CHUNK_SIZE, workerCombinations.length));
+                    for (const combination of chunk) {
+                        await executeSearch(combination, workerId);
+                    }
+                    // Clear the processed chunk
+                    chunk.length = 0;
+                    
+                    // Force garbage collection between chunks
+                    if (global.gc) {
+                        global.gc();
+                    }
                 }
             }();
         });
 
         // Wait for all workers to complete
         await Promise.all(workerPromises);
+        
+        // Clear the combinations array
+        allCombinations.length = 0;
+        
         Logger.info('All workers have completed their tasks', {
             context: {
                 component: "WorkerManager",

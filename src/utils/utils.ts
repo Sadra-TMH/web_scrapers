@@ -1094,8 +1094,8 @@ export async function processExtractedUrls(
 
 export function generateCombinationsIterative(maxLength: number): string[] {
   const persianLetters = [
-    // "آ",
-    // "ا",
+    "آ",
+    "ا",
     "ب",
     "پ",
     "ت",
@@ -1375,7 +1375,7 @@ export async function processCompanyData(
 
     // Find all table rows except the header row
     const rows = $("table.a-IRR-table tr").not(":first-child");
-
+    
     // Process each row and fetch additional details
     for (const row of rows.toArray()) {
       const $row = $(row);
@@ -1386,15 +1386,11 @@ export async function processCompanyData(
           companyId: $companyLink.attr("id") || "",
           companyName: $companyLink.text().trim(),
           nationalId: $row.find("td:nth-child(2)").text().trim(),
-          registrationNumber: $row.find("td:nth-child(3)").text().trim(),
+          registrationNumber: $row.find("td:nth-child(3)").text().trim()
         };
 
         try {
-          // Fetch additional company details
-          const additionalInfo = await flowAjaxCompanyInfo(
-            basicInfo.companyId,
-            searchQuery
-          );
+          const additionalInfo = await flowAjaxCompanyInfo(basicInfo.companyId, searchQuery);
           if (additionalInfo) {
             basicInfo.postalCode = additionalInfo.postalCode;
             basicInfo.address = additionalInfo.address;
@@ -1417,6 +1413,11 @@ export async function processCompanyData(
       }
     }
 
+    // Clear cheerio's internal cache
+    $.root().empty();
+    rows.length = 0;
+    let parser = null;
+
     if (companies.length === 0) {
       Logger.warn(`No company data found in HTML`, {
         context: {
@@ -1436,8 +1437,9 @@ export async function processCompanyData(
     let currentTotal = 0;
     if (!isFirstBatch) {
       try {
-        const content = await fs.readFile(csvFilePath, "utf-8");
-        currentTotal = content.split("\n").length - 2; // Subtract header and last empty line
+        let fileContent = await fs.readFile(csvFilePath, "utf-8");
+        currentTotal = fileContent.split("\n").length - 2;
+        fileContent = ""; // Release memory
       } catch {
         currentTotal = 0;
       }
@@ -1455,36 +1457,31 @@ export async function processCompanyData(
         "Address",
       ];
       csvContent = headers.join(",") + "\n";
-      Logger.info(`Creating new CSV file with headers`, {
-        context: {
-          searchQuery,
-          component: "CompanyDataProcessor",
-          workerId,
-        },
-      });
     }
 
-    // Add company data
-    companies.forEach((company) => {
-      csvContent +=
-        [
-          company.companyId,
-          `"${company.companyName.replace(/"/g, '""')}"`,
-          company.nationalId,
-          company.registrationNumber,
-          `"${(company.postalCode || "").replace(/"/g, '""')}"`,
-          `"${(company.address || "").replace(/"/g, '""')}"`,
-        ].join(",") + "\n";
-    });
+    // Process companies in smaller chunks to manage memory
+    const CHUNK_SIZE = 50;
+    for (let i = 0; i < companies.length; i += CHUNK_SIZE) {
+      const chunk = companies.slice(i, i + CHUNK_SIZE);
+      const chunkContent = chunk.map(company => [
+        company.companyId,
+        `"${company.companyName.replace(/"/g, '""')}"`,
+        company.nationalId,
+        company.registrationNumber,
+        `"${(company.postalCode || "").replace(/"/g, '""')}"`,
+        `"${(company.address || "").replace(/"/g, '""')}"`,
+      ].join(",")).join("\n") + "\n";
 
-    // Write or append to file
-    if (isFirstBatch) {
-      await fs.writeFile(csvFilePath, csvContent, "utf-8");
-    } else {
-      await fs.appendFile(csvFilePath, csvContent, "utf-8");
+      // Append chunk directly to file
+      await fs.appendFile(csvFilePath, isFirstBatch && i === 0 ? csvContent + chunkContent : chunkContent);
     }
 
-    const totalProcessed = currentTotal + companies.length;
+    const processedCount = companies.length;
+    const totalProcessed = currentTotal + processedCount;
+
+    // Clear arrays
+    companies.length = 0;
+    csvContent = "";
 
     // Update pagination status
     await updatePaginationStatus(searchQuery, {
@@ -1496,7 +1493,7 @@ export async function processCompanyData(
     });
 
     Logger.info(
-      `Processed batch of ${companies.length} companies (Total: ${totalProcessed})`,
+      `Processed batch of ${processedCount} companies (Total: ${totalProcessed})`,
       {
         context: {
           searchQuery,
@@ -1507,8 +1504,8 @@ export async function processCompanyData(
     );
 
     return {
-      processedCount: companies.length,
-      totalProcessed: totalProcessed,
+      processedCount,
+      totalProcessed,
     };
   } catch (error) {
     Logger.error(`Failed to process company data`, {
