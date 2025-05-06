@@ -1107,97 +1107,6 @@ export async function getPaginationStatus(
   }
 }
 
-async function isSessionExpired(response: any): Promise<boolean> {
-  if (typeof response === "object" && response !== null) {
-    // Check for session expired message in the response
-    if (response.error === "Your session has ended.") {
-      return true;
-    }
-  }
-  return false;
-}
-
-async function renewSession(): Promise<void> {
-  try {
-    Logger.info("Renewing session...", {
-      context: {
-        component: "SessionManager",
-      },
-    });
-
-    // Clear existing credentials
-    await writeJsonFile(FILE_DIR_PREFIX + CREDENTIALS_FILE, {});
-
-    // Get new cookies and credentials
-    const cookies = await getInitialCookies();
-
-    Logger.info("Session renewed successfully", {
-      context: {
-        component: "SessionManager",
-      },
-    });
-  } catch (error) {
-    Logger.error("Failed to renew session", {
-      context: {
-        component: "SessionManager",
-      },
-      error,
-    });
-    throw error;
-  }
-}
-
-async function withSessionRetry<T>(
-  operation: () => Promise<T>,
-  context: { searchQuery?: string; component?: string } = {}
-): Promise<T> {
-  try {
-    const result = await operation();
-
-    // Check if the result indicates session expiration
-    if (await isSessionExpired(result)) {
-      Logger.warn("Session expired, attempting renewal", {
-        context: {
-          ...context,
-          component: "SessionManager",
-        },
-      });
-
-      // Renew session
-      await renewSession();
-
-      // Retry the operation
-      Logger.info("Retrying operation after session renewal", {
-        context: {
-          ...context,
-          component: "SessionManager",
-        },
-      });
-      return await operation();
-    }
-
-    return result;
-  } catch (error) {
-    // If the error response indicates session expiration, retry
-    if (
-      axios.isAxiosError(error) &&
-      error.response?.data &&
-      (await isSessionExpired(error.response.data))
-    ) {
-      Logger.warn("Session expired (from error), attempting renewal", {
-        context: {
-          ...context,
-          component: "SessionManager",
-        },
-      });
-
-      await renewSession();
-      return await operation();
-    }
-    throw error;
-  }
-}
-
 export async function processCompanyData(
   html: string,
   searchQuery: string,
@@ -1487,5 +1396,95 @@ async function flowAjaxCompanyInfo(
       error,
     });
     throw error;
+  }
+}
+
+async function isSessionExpired(response: any): Promise<boolean> {
+  if (typeof response === 'object' && response !== null) {
+      // Check for session expired message in the response
+      if (response.error === "Your session has ended.") {
+          return true;
+      }
+  }
+  return false;
+}
+
+async function renewSession(): Promise<void> {
+  try {
+      Logger.info("Renewing session...", {
+          context: {
+              component: "SessionManager",
+          },
+      });
+
+      // Clear existing credentials
+      await writeJsonFile(FILE_DIR_PREFIX + CREDENTIALS_FILE, {});
+      
+      // Get new cookies and credentials
+      const cookies = await getInitialCookies();
+      
+      Logger.info("Session renewed successfully", {
+          context: {
+              component: "SessionManager",
+          },
+      });
+  } catch (error) {
+      Logger.error("Failed to renew session", {
+          context: {
+              component: "SessionManager",
+          },
+          error,
+      });
+      throw error;
+  }
+}
+
+export async function withSessionRetry<T>(
+  operation: () => Promise<T>,
+  context: { searchQuery?: string; component?: string } = {}
+): Promise<T> {
+  try {
+      const result = await operation();
+      
+      // Check if the result indicates session expiration
+      if (await isSessionExpired(result)) {
+          Logger.warn("Session expired, attempting renewal", {
+              context: {
+                  ...context,
+                  component: "SessionManager",
+              },
+          });
+          
+          // Renew session
+          await renewSession();
+          
+          // Retry the operation
+          Logger.info("Retrying operation after session renewal", {
+              context: {
+                  ...context,
+                  component: "SessionManager",
+              },
+          });
+          return await operation();
+      }
+      
+      return result;
+  } catch (error) {
+      // If the error response indicates session expiration, retry
+      if (axios.isAxiosError(error) && 
+          error.response?.data && 
+          await isSessionExpired(error.response.data)) {
+          
+          Logger.warn("Session expired (from error), attempting renewal", {
+              context: {
+                  ...context,
+                  component: "SessionManager",
+              },
+          });
+          
+          await renewSession();
+          return await operation();
+      }
+      throw error;
   }
 }
