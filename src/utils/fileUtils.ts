@@ -1,7 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { Credentials } from './utils.js';
-
+import { Credentials } from './types';
 export const FILE_DIR_PREFIX = "src/files/";
 export const CREDENTIALS_FILE = "credentials.json";
 
