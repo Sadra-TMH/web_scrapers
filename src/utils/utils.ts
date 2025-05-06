@@ -6,39 +6,22 @@ import axios from "axios";
 import FormData from "form-data";
 import * as fsSync from "fs";
 import path from "path";
+import {
+  AjaxRequestParams,
+  LogOptions,
+  AjaxResponse,
+  CombinationStatus,
+  CompanyData,
+  CompanyPaginationStatus,
+  Credentials,
+  ExtractedInfo,
+  FormDataCredentials,
+  ProcessCompanyResult,
+  CompanyDetails,
+} from "./types";
 
 // Logger types and utility
 export type LogLevel = "info" | "error" | "warn" | "debug";
-
-interface LogContext {
-  searchQuery?: string;
-  component?: string;
-  url?: string;
-  workerId?: string;
-  currentMinRow?: number;
-  totalProcessed?: number;
-  // Setup context
-  input?: string;
-  length?: number;
-  totalCombinations?: number;
-  // Worker context
-  workers?: number;
-  combinationLength?: number;
-  combinationsAssigned?: number;
-  startIndex?: number;
-  endIndex?: number;
-  totalWorkers?: number;
-  totalCombinationsProcessed?: number;
-  // Company context
-  companyId?: string;
-  name?: string;
-  registrationNumber?: string;
-}
-
-interface LogOptions {
-  context?: LogContext;
-  error?: Error | unknown;
-}
 
 class Logger {
   private static logFile: string;
@@ -176,54 +159,6 @@ export const POST_HEADERS = {
   "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
   Referer: baseUrl,
 };
-
-export interface FormDataCredentials {
-  flowId?: string;
-  flowStepId?: string;
-  instance?: string;
-  pageSubmissionId?: string;
-  salt?: string;
-  protected?: string;
-  pageItemsRowVersion?: string;
-  orderPrice?: string;
-  banner?: string;
-  linkBanner?: string;
-  currentDate?: string;
-  mt?: string;
-  pPageItemsProtected?: string;
-  tooltipBanner?: { value?: string; ck?: string };
-  currentPageId?: { value?: string; ck?: string };
-  orderId?: { value?: string; ck?: string };
-  gridConfig?: {
-    reportId: string;
-    view: string;
-    ajaxColumns: string[];
-    id: string;
-    ajaxIdentifier: string;
-  };
-  ajaxIdentifiers: {
-    [key: string]: string;
-  };
-  companyRegionData: {
-    regionId?: string;
-    worksheetId?: string;
-    reportId?: string;
-    ajaxIdentifier?: string;
-  };
-  companyInfo?: {
-    ajaxIdentifier: string;
-    internalRegionId: string;
-  };
-}
-
-export interface UrlCredentials {
-  cookies?: string;
-  formData?: FormDataCredentials;
-}
-
-export interface Credentials {
-  [url: string]: UrlCredentials;
-}
 
 export async function extractFormCredentials(
   html: string
@@ -452,18 +387,6 @@ function parseEncodedString(encodedString: string): string {
 }
 
 /**
- * Common interface for AJAX request parameters
- */
-export interface AjaxRequestParams {
-  searchQuery?: string;
-  getElement: (flowStepId: string) => string;
-  getAdditionalItems: (flowStepId: string) => Array<{
-    name: string;
-    value: string;
-  }>;
-}
-
-/**
  * Handles common AJAX flow operations
  */
 export async function handleAjaxFlow({
@@ -594,23 +517,6 @@ export async function getInitialCookies(): Promise<string> {
 }
 
 /**
- * Interface for the AJAX response structure
- */
-interface AjaxResponse {
-  regions?: Array<{
-    fetchedData?: {
-      values?: Array<
-        Array<
-          | string
-          | { v: string; d: string }
-          | { salt: string; protected: string; rowVersion: string }
-        >
-      >;
-    };
-  }>;
-}
-
-/**
  * Extracts URLs from HTML anchor tags
  * @param htmlString The HTML string containing anchor tags
  * @returns The extracted URL or null if no URL found
@@ -678,24 +584,6 @@ export async function extractAndSaveUrls(
     console.error("Error extracting and saving URLs:", error);
     throw error;
   }
-}
-
-interface ExtractedInfo {
-  url?: string;
-  scrapedAt?: string;
-  trackingNumber?: string; // شماره پیگیری
-  letterNumber?: string; // شماره نامه
-  letterDate?: string; // تاریخ نامه
-  newspaperNumber?: string; // شماره روزنامه
-  newspaperDate?: string; // تاریخ روزنامه
-  pageNumber?: string; // شماره صفحه روزنامه
-  publishCount?: string; // تعداد نوبت انتشار
-  title?: string; // عنوان آگهی
-  content?: string; // متن آگهی
-  companyName?: string;
-  companyNationalId?: string;
-  companyRegisterNumber?: string;
-  letterPublisher?: string;
 }
 
 /**
@@ -1154,25 +1042,6 @@ export function generateCombinationsIterative(maxLength: number): string[] {
   return combinations; // Now only contains combinations of exactly maxLength
 }
 
-// Add these types for status tracking
-interface CompanyPaginationStatus {
-  currentMinRow: number;
-  perPage: number;
-  totalProcessed: number;
-  isFirstBatch: boolean;
-  lastUpdated: string;
-}
-
-interface CombinationStatus {
-  combination: string;
-  status: "pending" | "completed" | "failed";
-  startedAt: string;
-  completedAt?: string;
-  error?: string;
-  workerId?: string;
-  paginationStatus?: CompanyPaginationStatus;
-}
-
 async function updatePaginationStatus(
   searchQuery: string,
   paginationData: CompanyPaginationStatus
@@ -1222,7 +1091,7 @@ async function updatePaginationStatus(
   }
 }
 
-async function getPaginationStatus(
+export async function getPaginationStatus(
   searchQuery: string
 ): Promise<CompanyPaginationStatus | null> {
   try {
@@ -1236,14 +1105,6 @@ async function getPaginationStatus(
   } catch {
     return null;
   }
-}
-
-// Add these session management utilities after the existing constants
-interface SessionResponse {
-  error?: string;
-  unsafe?: boolean;
-  addInfo?: string;
-  pageSubmissionId?: string;
 }
 
 async function isSessionExpired(response: any): Promise<boolean> {
@@ -1337,30 +1198,6 @@ async function withSessionRetry<T>(
   }
 }
 
-interface CompanyData {
-  companyId: string;
-  companyName: string;
-  nationalId: string;
-  registrationNumber: string;
-  postalCode?: string;
-  address?: string;
-}
-
-interface ProcessCompanyResult {
-  processedCount: number;
-  totalProcessed: number;
-}
-
-/**
- * Processes company HTML data and saves it to a CSV file
- * @param html The HTML content containing company data
- * @param searchQuery The search query for folder organization
- * @param isFirstBatch Whether this is the first batch of data
- * @param currentMinRow The current minimum row index
- * @param perPage The number of rows per page
- * @param workerId Optional worker ID for logging
- * @returns Object containing the number of companies processed in this batch and total processed
- */
 export async function processCompanyData(
   html: string,
   searchQuery: string,
@@ -1375,7 +1212,7 @@ export async function processCompanyData(
 
     // Find all table rows except the header row
     const rows = $("table.a-IRR-table tr").not(":first-child");
-    
+
     // Process each row and fetch additional details
     for (const row of rows.toArray()) {
       const $row = $(row);
@@ -1386,11 +1223,14 @@ export async function processCompanyData(
           companyId: $companyLink.attr("id") || "",
           companyName: $companyLink.text().trim(),
           nationalId: $row.find("td:nth-child(2)").text().trim(),
-          registrationNumber: $row.find("td:nth-child(3)").text().trim()
+          registrationNumber: $row.find("td:nth-child(3)").text().trim(),
         };
 
         try {
-          const additionalInfo = await flowAjaxCompanyInfo(basicInfo.companyId, searchQuery);
+          const additionalInfo = await flowAjaxCompanyInfo(
+            basicInfo.companyId,
+            searchQuery
+          );
           if (additionalInfo) {
             basicInfo.postalCode = additionalInfo.postalCode;
             basicInfo.address = additionalInfo.address;
@@ -1463,17 +1303,25 @@ export async function processCompanyData(
     const CHUNK_SIZE = 50;
     for (let i = 0; i < companies.length; i += CHUNK_SIZE) {
       const chunk = companies.slice(i, i + CHUNK_SIZE);
-      const chunkContent = chunk.map(company => [
-        company.companyId,
-        `"${company.companyName.replace(/"/g, '""')}"`,
-        company.nationalId,
-        company.registrationNumber,
-        `"${(company.postalCode || "").replace(/"/g, '""')}"`,
-        `"${(company.address || "").replace(/"/g, '""')}"`,
-      ].join(",")).join("\n") + "\n";
+      const chunkContent =
+        chunk
+          .map((company) =>
+            [
+              company.companyId,
+              `"${company.companyName.replace(/"/g, '""')}"`,
+              company.nationalId,
+              company.registrationNumber,
+              `"${(company.postalCode || "").replace(/"/g, '""')}"`,
+              `"${(company.address || "").replace(/"/g, '""')}"`,
+            ].join(",")
+          )
+          .join("\n") + "\n";
 
       // Append chunk directly to file
-      await fs.appendFile(csvFilePath, isFirstBatch && i === 0 ? csvContent + chunkContent : chunkContent);
+      await fs.appendFile(
+        csvFilePath,
+        isFirstBatch && i === 0 ? csvContent + chunkContent : chunkContent
+      );
     }
 
     const processedCount = companies.length;
@@ -1518,17 +1366,6 @@ export async function processCompanyData(
     });
     throw error;
   }
-}
-
-// Export the new functions
-export { getPaginationStatus };
-
-interface CompanyDetails {
-  name: string;
-  registrationNumber: string;
-  nationalId: string;
-  postalCode: string;
-  address: string;
 }
 
 function extractCompanyDetails(html: string): CompanyDetails | null {
@@ -1635,9 +1472,12 @@ async function flowAjaxCompanyInfo(
 
     const details = extractCompanyDetails(ajaxResponse.data);
     if (details) {
-      Logger.info(`Successfully extracted company details for id: ${companyId}`, {
-        context,
-      });
+      Logger.info(
+        `Successfully extracted company details for id: ${companyId}`,
+        {
+          context,
+        }
+      );
     }
 
     return details;
@@ -1649,6 +1489,3 @@ async function flowAjaxCompanyInfo(
     throw error;
   }
 }
-
-// Export the new types and functions
-export { CompanyDetails, extractCompanyDetails, flowAjaxCompanyInfo };
