@@ -33,3 +33,8 @@ export const POST_HEADERS = {
   "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
   Referer: BASE_URL,
 };
+
+// Add these constants at the top of the file after imports
+export const MAX_RETRIES = 3;
+export const RETRY_DELAY = 2000; // 2 seconds
+export const TIMEOUT = 90000; // 90 seconds
