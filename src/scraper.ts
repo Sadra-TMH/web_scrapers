@@ -280,42 +280,6 @@ async function flowAccept(searchQuery: string) {
     }
 }
 
-async function flowAjax1(searchQuery: string) {
-    try {
-        const response = await handleAjaxFlow({
-            getElement: (flowStepId) => `P${flowStepId}_FOOTER`,
-            getAdditionalItems: (flowStepId) => [
-                {
-                    name: `P${flowStepId}_FOOTER`,
-                    value: "",
-                },
-                {
-                    name: `P${flowStepId}_FOOTER_1`,
-                    value: "",
-                },
-            ],
-        });
-
-        Logger.info(`Flow ajax1 completed`, {
-            context: {
-                searchQuery,
-                component: "Search",
-            },
-        });
-
-        return response;
-    } catch (error) {
-        Logger.error(`Flow ajax1 failed`, {
-            context: {
-                searchQuery,
-                component: "Search",
-            },
-            error,
-        });
-        throw error;
-    }
-}
-
 async function flowAjax2(searchQuery: string) {
     try {
         const response = await handleAjaxFlow({
@@ -343,42 +307,6 @@ async function flowAjax2(searchQuery: string) {
         return response;
     } catch (error) {
         Logger.error(`Flow ajax2 failed`, {
-            context: {
-                searchQuery,
-                component: "Search",
-            },
-            error,
-        });
-        throw error;
-    }
-}
-
-async function flowAjax3(searchQuery: string) {
-    try {
-        const response = await handleAjaxFlow({
-            getElement: (flowStepId) => `P${flowStepId}_FOOTER`,
-            getAdditionalItems: (flowStepId) => [
-                {
-                    name: `P${flowStepId}_FOOTER`,
-                    value: "",
-                },
-                {
-                    name: `P${flowStepId}_FOOTER_2`,
-                    value: "",
-                },
-            ],
-        });
-
-        Logger.info(`Flow ajax3 completed`, {
-            context: {
-                searchQuery,
-                component: "Search",
-            },
-        });
-
-        return response;
-    } catch (error) {
-        Logger.error(`Flow ajax3 failed`, {
             context: {
                 searchQuery,
                 component: "Search",
