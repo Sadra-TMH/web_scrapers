@@ -4,21 +4,10 @@ import {
     writeJsonFile,
     saveCredentials,
     loadCredentials,
-    FILE_DIR_PREFIX,
-    CREDENTIALS_FILE,
 } from "./utils/fileUtils.js";
 import {
-    COMMON_HEADERS,
-    POST_HEADERS,
-    CACHE_HEADERS,
-    searchPage,
-    baseUrl,
-    searchUrl,
-    ajaxUrl,
-    homeUrl,
     processExtractedUrls,
     getQueryFolder,
-    Logger,
     getPaginationStatus,
     processCompanyData,
     generateCombinationsIterative,
@@ -30,6 +19,8 @@ import { extractAndSaveUrls } from "./utils/utils.js";
 import * as readline from 'readline';
 import { stdin as input, stdout as output } from 'node:process';
 import { TIMEOUT } from "./utils/utils.js";
+import { Logger } from "./utils/logger.js";
+import { SEARCH_PAGE, AJAX_URL, BASE_URL, CACHE_HEADERS, COMMON_HEADERS, POST_HEADERS, SEARCH_URL, HOME_URL } from "./utils/constants.js";
 
 async function makeRequestAndSaveCredentials(
     url: string,
@@ -96,7 +87,7 @@ async function makeRequestAndSaveCredentials(
 
 async function getInitialCookies(): Promise<string> {
     try {
-        const initialUrl = homeUrl;
+        const initialUrl = HOME_URL;
         Logger.debug(`Getting initial cookies`, {
             context: {
                 component: "Auth",
@@ -110,7 +101,7 @@ async function getInitialCookies(): Promise<string> {
         // Make search page request using credentials from initial request
         if (initialResult.formCredentials.instance) {
             await makeRequestAndSaveCredentials(
-                `${searchPage}?session=${initialResult.formCredentials.instance}`,
+                `${SEARCH_PAGE}?session=${initialResult.formCredentials.instance}`,
                 initialUrl,
                 {
                     headers: {
@@ -136,7 +127,7 @@ async function flowAccept(searchQuery: string) {
     try {
         // Get credentials - either load existing or fetch new ones
         const credentials = await loadCredentials();
-        let cookies = credentials?.[searchPage]?.cookies;
+        let cookies = credentials?.[SEARCH_PAGE]?.cookies;
 
         if (!cookies) {
             Logger.info(`No existing cookies found, fetching new ones`, {
@@ -148,7 +139,7 @@ async function flowAccept(searchQuery: string) {
             cookies = await getInitialCookies();
         }
 
-        const formCredentials = credentials?.[searchPage]?.formData;
+        const formCredentials = credentials?.[SEARCH_PAGE]?.formData;
         if (!formCredentials) {
             throw new Error("No form credentials found");
         }
@@ -248,14 +239,14 @@ async function flowAccept(searchQuery: string) {
         formData.append("p_json", jsonString);
 
         const searchResponse = await axios.post(
-            `${searchUrl}${formCredentials.instance}`,
+            `${SEARCH_URL}${formCredentials.instance}`,
             formData,
             {
                 headers: {
                     ...COMMON_HEADERS,
                     ...POST_HEADERS,
                     ...formData.getHeaders(),
-                    Referer: baseUrl,
+                    Referer: BASE_URL,
                     Cookie: cookies,
                 },
                 maxRedirects: 5,
@@ -321,7 +312,7 @@ async function flowAjax2(searchQuery: string) {
 async function flowAjaxCompany(searchQuery: string, perPage: number = 5, minRow: number = 1) {
     try {
         const credentials = await loadCredentials();
-        let cookies = credentials?.[searchPage]?.cookies;
+        let cookies = credentials?.[SEARCH_PAGE]?.cookies;
 
         if (!cookies) {
             Logger.info(`No existing cookies found, fetching new ones`, {
@@ -333,7 +324,7 @@ async function flowAjaxCompany(searchQuery: string, perPage: number = 5, minRow:
             cookies = await getInitialCookies();
         }
 
-        const formCredentials = credentials?.[searchPage]?.formData;
+        const formCredentials = credentials?.[SEARCH_PAGE]?.formData;
 
         // Create FormData instance
         const formData = new FormData();
@@ -384,14 +375,14 @@ async function flowAjaxCompany(searchQuery: string, perPage: number = 5, minRow:
         formData.append("p_json", JSON.stringify(jsonPayload));
 
         const ajaxResponse = await axios.post(
-            `${ajaxUrl}${formCredentials?.instance}`,
+            `${AJAX_URL}${formCredentials?.instance}`,
             formData,
             {
                 headers: {
                     ...COMMON_HEADERS,
                     ...POST_HEADERS,
                     ...formData.getHeaders(),
-                    Referer: baseUrl,
+                    Referer: BASE_URL,
                     Cookie: cookies,
                 },
                 maxRedirects: 5,
@@ -422,7 +413,7 @@ async function flowAjaxCompany(searchQuery: string, perPage: number = 5, minRow:
 async function flowAjaxFinal(searchQuery: string) {
     try {
         const credentials = await loadCredentials();
-        let cookies = credentials?.[searchPage]?.cookies;
+        let cookies = credentials?.[SEARCH_PAGE]?.cookies;
 
         if (!cookies) {
             Logger.info(`No existing cookies found, fetching new ones`, {
@@ -434,7 +425,7 @@ async function flowAjaxFinal(searchQuery: string) {
             cookies = await getInitialCookies();
         }
 
-        const formCredentials = credentials?.[searchPage]?.formData;
+        const formCredentials = credentials?.[SEARCH_PAGE]?.formData;
 
         // Create FormData instance
         const formData = new FormData();
@@ -473,14 +464,14 @@ async function flowAjaxFinal(searchQuery: string) {
         formData.append("p_json", JSON.stringify(jsonPayload));
 
         const ajaxResponse = await axios.post(
-            `${ajaxUrl}${formCredentials?.instance}`,
+            `${AJAX_URL}${formCredentials?.instance}`,
             formData,
             {
                 headers: {
                     ...COMMON_HEADERS,
                     ...POST_HEADERS,
                     ...formData.getHeaders(),
-                    Referer: baseUrl,
+                    Referer: BASE_URL,
                     Cookie: cookies,
                 },
                 maxRedirects: 5,
@@ -531,7 +522,7 @@ export async function executeSearch(searchQuery: string, workerId?: string) {
         );
 
         if (result?.redirectURL) {
-            const shortUrl = new URL(baseUrl + result.redirectURL).pathname;
+            const shortUrl = new URL(BASE_URL + result.redirectURL).pathname;
             Logger.debug(`Following redirect`, {
                 context: {
                     ...searchContext,
@@ -540,7 +531,7 @@ export async function executeSearch(searchQuery: string, workerId?: string) {
             });
 
             await withSessionRetry(
-                () => makeRequestAndSaveCredentials(baseUrl + result.redirectURL, searchPage, {
+                () => makeRequestAndSaveCredentials(BASE_URL + result.redirectURL, SEARCH_PAGE, {
                     headers: {
                         ...CACHE_HEADERS,
                     },

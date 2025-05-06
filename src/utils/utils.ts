@@ -4,11 +4,8 @@ import { writeJsonFile, saveCredentials } from "./fileUtils";
 import { FILE_DIR_PREFIX } from "./fileUtils";
 import axios from "axios";
 import FormData from "form-data";
-import * as fsSync from "fs";
-import path from "path";
 import {
   AjaxRequestParams,
-  LogOptions,
   AjaxResponse,
   CombinationStatus,
   CompanyData,
@@ -19,146 +16,13 @@ import {
   ProcessCompanyResult,
   CompanyDetails,
 } from "./types";
+import { Logger } from "./logger";
+import { SEARCH_PAGE, AJAX_URL, BASE_URL, CACHE_HEADERS, COMMON_HEADERS, POST_HEADERS, CREDENTIALS_FILE } from "./constants";
 
 // Logger types and utility
-export type LogLevel = "info" | "error" | "warn" | "debug";
 
-class Logger {
-  private static logFile: string;
-  private static writeStream: fsSync.WriteStream | null = null;
 
-  static initialize(logDirectory: string = FILE_DIR_PREFIX) {
-    // Ensure the log directory exists
-    if (!fsSync.existsSync(logDirectory)) {
-      fsSync.mkdirSync(logDirectory, { recursive: true });
-    }
 
-    this.logFile = path.join(logDirectory, "output.log");
-
-    // Create or open the write stream
-    this.writeStream = fsSync.createWriteStream(this.logFile, { flags: "a" });
-
-    // Handle process termination
-    process.on("exit", () => this.cleanup());
-    process.on("SIGINT", () => {
-      this.cleanup();
-      process.exit();
-    });
-  }
-
-  private static cleanup() {
-    if (this.writeStream) {
-      this.writeStream.end();
-      this.writeStream = null;
-    }
-  }
-
-  private static writeToFile(message: string) {
-    if (!this.writeStream) {
-      this.initialize();
-    }
-    this.writeStream?.write(message + "\n");
-  }
-
-  private static formatMessage(
-    level: LogLevel,
-    message: string,
-    options?: LogOptions
-  ): string {
-    const timestamp = new Date().toISOString();
-    const context = options?.context;
-    let formattedMessage = `[${timestamp}] [${level.toUpperCase()}]`;
-
-    if (context?.workerId) {
-      formattedMessage += ` [${context.workerId}]`;
-    }
-    if (context?.component) {
-      formattedMessage += ` [${context.component}]`;
-    }
-    if (context?.searchQuery) {
-      formattedMessage += ` [Query: ${context.searchQuery}]`;
-    }
-    if (context?.url) {
-      formattedMessage += ` [URL: ${context.url}]`;
-    }
-
-    formattedMessage += `: ${message}`;
-
-    if (options?.error) {
-      const error = options.error as Error;
-      if (error.message) {
-        formattedMessage += `\nError: ${error.message}`;
-      }
-      if (error.stack) {
-        formattedMessage += `\nStack: ${error.stack}`;
-      }
-    }
-
-    return formattedMessage;
-  }
-
-  static log(level: LogLevel, message: string, options?: LogOptions): void {
-    const formattedMessage = this.formatMessage(level, message, options);
-    this.writeToFile(formattedMessage);
-  }
-
-  static info(message: string, options?: LogOptions): void {
-    this.log("info", message, options);
-  }
-
-  static error(message: string, options?: LogOptions): void {
-    this.log("error", message, options);
-  }
-
-  static warn(message: string, options?: LogOptions): void {
-    this.log("warn", message, options);
-  }
-
-  static debug(message: string, options?: LogOptions): void {
-    this.log("debug", message, options);
-  }
-}
-
-// Initialize logger
-Logger.initialize();
-
-export { Logger };
-
-// URLs
-export const baseUrl = "https://rrk.ir";
-export const searchPage = `${baseUrl}/ords/r/rrs/rrs-front/big_data11`;
-export const searchUrl = `${baseUrl}/ords/wwv_flow.accept?p_context=rrs-front/big_data11/`;
-export const ajaxUrl = `${baseUrl}/ords/wwv_flow.ajax?p_context=rrs-front/big_data11/`;
-export const homeUrl = `${baseUrl}/ords/r/rrs/rrs-front/home`;
-// File paths
-export const CREDENTIALS_FILE = "credentials.json";
-
-// Common Headers
-export const COMMON_HEADERS = {
-  "User-Agent":
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:137.0) Gecko/20100101 Firefox/137.0",
-  Accept: "application/json, text/javascript, */*; q=0.01",
-  "Accept-Language": "en-US,en;q=0.5",
-  "Accept-Encoding": "gzip, deflate, br, zstd",
-  Host: "rrk.ir",
-  Connection: "keep-alive",
-  "X-Requested-With": "XMLHttpRequest",
-  "Sec-Fetch-Dest": "empty",
-  "Sec-Fetch-Mode": "cors",
-  "Sec-Fetch-Site": "same-origin",
-};
-
-// Additional Headers
-export const CACHE_HEADERS = {
-  "Cache-Control": "no-cache",
-  Pragma: "no-cache",
-};
-
-export const POST_HEADERS = {
-  Origin: baseUrl,
-  "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-  Referer: baseUrl,
-};
 
 export async function extractFormCredentials(
   html: string
@@ -397,14 +261,14 @@ export async function handleAjaxFlow({
   try {
     // Get credentials - either load existing or fetch new ones
     const credentials = await loadCredentials();
-    let cookies = credentials?.[searchPage]?.cookies;
+    let cookies = credentials?.[SEARCH_PAGE]?.cookies;
 
     if (!cookies) {
       console.log("No existing cookies found, fetching new ones...");
       cookies = await getInitialCookies();
     }
 
-    const formCredentials = credentials?.[searchPage]?.formData;
+    const formCredentials = credentials?.[SEARCH_PAGE]?.formData;
     if (!formCredentials) {
       throw new Error("No form credentials found");
     }
@@ -445,14 +309,14 @@ export async function handleAjaxFlow({
     formData.append("p_json", JSON.stringify(jsonPayload));
 
     const ajaxResponse = await axios.post(
-      `${ajaxUrl}${formCredentials.instance}`,
+      `${AJAX_URL}${formCredentials.instance}`,
       formData,
       {
         headers: {
           ...COMMON_HEADERS,
           ...POST_HEADERS,
           ...formData.getHeaders(),
-          Referer: baseUrl,
+          Referer: BASE_URL,
           Cookie: cookies,
         },
         maxRedirects: 5,
@@ -487,7 +351,7 @@ export async function loadCredentials(): Promise<Credentials> {
 
 export async function getInitialCookies(): Promise<string> {
   try {
-    const response = await axios.get(searchPage, {
+    const response = await axios.get(SEARCH_PAGE, {
       headers: COMMON_HEADERS,
       maxRedirects: 5,
     });
@@ -562,7 +426,7 @@ export async function extractAndSaveUrls(
         if (valueArray[1] && typeof valueArray[1] === "string") {
           const url = extractUrlFromHtml(valueArray[1]);
           if (url) {
-            const absoluteUrl = url.startsWith("/") ? `${baseUrl}${url}` : url;
+            const absoluteUrl = url.startsWith("/") ? `${BASE_URL}${url}` : url;
             urls.push(absoluteUrl);
           }
         }
@@ -662,7 +526,7 @@ export async function fetchAndSaveHtml(
     try {
       // Get credentials
       const credentials = await loadCredentials();
-      let cookies = credentials?.[searchPage]?.cookies;
+      let cookies = credentials?.[SEARCH_PAGE]?.cookies;
 
       // Shorten URL for logging
       const urlObj = new URL(url);
@@ -1311,14 +1175,14 @@ async function flowAjaxCompanyInfo(
 
   try {
     const credentials = await loadCredentials();
-    let cookies = credentials?.[searchPage]?.cookies;
+    let cookies = credentials?.[SEARCH_PAGE]?.cookies;
 
     if (!cookies) {
       Logger.info(`No existing cookies found, fetching new ones`, { context });
       cookies = await getInitialCookies();
     }
 
-    const formCredentials = credentials?.[searchPage]?.formData;
+    const formCredentials = credentials?.[SEARCH_PAGE]?.formData;
     if (!formCredentials?.companyInfo) {
       Logger.error(`Missing company info credentials`, { context });
       return null;
@@ -1359,14 +1223,14 @@ async function flowAjaxCompanyInfo(
     formData.append("p_json", JSON.stringify(jsonPayload));
 
     const ajaxResponse = await axios.post(
-      `${ajaxUrl}${formCredentials?.instance}`,
+      `${AJAX_URL}${formCredentials?.instance}`,
       formData,
       {
         headers: {
           ...COMMON_HEADERS,
           ...POST_HEADERS,
           ...formData.getHeaders(),
-          Referer: baseUrl,
+          Referer: BASE_URL,
           Cookie: cookies,
         },
         maxRedirects: 5,
