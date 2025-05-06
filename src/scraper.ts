@@ -15,7 +15,7 @@ import {
 } from "./utils/utils.js";
 import { extractFormCredentials } from "./utils/utils.js";
 import { handleAjaxFlow } from "./utils/utils.js";
-import { extractAndSaveUrls } from "./utils/utils.js";
+import { extractAndSaveUrls } from "./utils/extractors.js";
 import * as readline from "readline";
 import { stdin as input, stdout as output } from "node:process";
 import { Logger } from "./utils/logger.js";
