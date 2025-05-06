@@ -36,6 +36,87 @@ import {
 // Load environment variables from .env file
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
+// Add these constants at the top after imports
+const MAX_RETRIES = 5;
+const INITIAL_RETRY_DELAY = 5000; // 5 seconds
+const MAX_RETRY_DELAY = 60000; // 1 minute
+
+/**
+ * Implements exponential backoff retry logic for async functions
+ */
+async function withRetry<T>(
+  operation: () => Promise<T>,
+  context: {
+    operationName: string;
+    searchQuery?: string;
+    workerId?: string;
+    component?: string;
+  }
+): Promise<T> {
+  let lastError: Error | null = null;
+  let retryCount = 0;
+
+  while (retryCount < MAX_RETRIES) {
+    try {
+      if (retryCount > 0) {
+        // Calculate delay with exponential backoff
+        const delay = Math.min(
+          INITIAL_RETRY_DELAY * Math.pow(2, retryCount - 1),
+          MAX_RETRY_DELAY
+        );
+        
+        Logger.warn(
+          `Retrying ${context.operationName} (Attempt ${retryCount + 1}/${MAX_RETRIES}) after ${delay}ms delay`,
+          {
+            context: {
+              searchQuery: context.searchQuery,
+              component: context.component,
+              workerId: context.workerId,
+            },
+          }
+        );
+        
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+
+      return await operation();
+    } catch (error) {
+      lastError = error as Error;
+      retryCount++;
+
+      if (retryCount === MAX_RETRIES) {
+        Logger.error(
+          `${context.operationName} failed after ${MAX_RETRIES} attempts`,
+          {
+            context: {
+              searchQuery: context.searchQuery,
+              component: context.component,
+              workerId: context.workerId,
+            },
+            error: lastError,
+          }
+        );
+        throw error;
+      }
+
+      Logger.warn(
+        `${context.operationName} failed, will retry`,
+        {
+          context: {
+            searchQuery: context.searchQuery,
+            component: context.component,
+            workerId: context.workerId,
+          },
+          error: lastError,
+        }
+      );
+    }
+  }
+
+  // This should never be reached due to the throw in the loop
+  throw lastError;
+}
+
 async function makeRequestAndSaveCredentials(
   url: string,
   credentialsKey: string | null = null,
@@ -521,7 +602,7 @@ async function flowAjaxFinal(searchQuery: string) {
   }
 }
 
-// Modify executeSearch to accept workerId
+// Modify executeSearch to use the retry mechanism
 export async function executeSearch(searchQuery: string, workerId?: string) {
   const searchContext = {
     searchQuery,
@@ -537,10 +618,13 @@ export async function executeSearch(searchQuery: string, workerId?: string) {
     // Create a folder for this search query
     const queryFolder = await getQueryFolder(searchQuery);
 
-    // Wrap each operation with session retry
-    let result = await withSessionRetry(
-      () => flowAccept(searchQuery),
-      searchContext
+    // Wrap each operation with both session retry and our new retry mechanism
+    let result = await withRetry(
+      () => withSessionRetry(() => flowAccept(searchQuery), searchContext),
+      {
+        operationName: "Flow Accept",
+        ...searchContext,
+      }
     );
 
     if (result?.redirectURL) {
@@ -552,24 +636,34 @@ export async function executeSearch(searchQuery: string, workerId?: string) {
         },
       });
 
-      await withSessionRetry(
+      await withRetry(
         () =>
-          makeRequestAndSaveCredentials(
-            BASE_URL + result.redirectURL,
-            SEARCH_PAGE,
-            {
-              headers: {
-                ...CACHE_HEADERS,
-              },
-            }
+          withSessionRetry(
+            () =>
+              makeRequestAndSaveCredentials(
+                BASE_URL + result.redirectURL,
+                SEARCH_PAGE,
+                {
+                  headers: {
+                    ...CACHE_HEADERS,
+                  },
+                }
+              ),
+            searchContext
           ),
-        searchContext
+        {
+          operationName: "Redirect Request",
+          ...searchContext,
+        }
       );
     }
 
-    let resultAjax2 = await withSessionRetry(
-      () => flowAjax2(searchQuery),
-      searchContext
+    let resultAjax2 = await withRetry(
+      () => withSessionRetry(() => flowAjax2(searchQuery), searchContext),
+      {
+        operationName: "Flow Ajax2",
+        ...searchContext,
+      }
     );
 
     // Check for existing pagination status
@@ -611,19 +705,33 @@ export async function executeSearch(searchQuery: string, workerId?: string) {
         },
       });
 
-      let resultAjaxCompany = await withSessionRetry(
-        () => flowAjaxCompany(searchQuery, perPage, minRow),
-        searchContext
+      let resultAjaxCompany = await withRetry(
+        () =>
+          withSessionRetry(
+            () => flowAjaxCompany(searchQuery, perPage, minRow),
+            searchContext
+          ),
+        {
+          operationName: "Flow Ajax Company",
+          ...searchContext,
+        }
       );
 
       // Process the batch
-      const { processedCount, totalProcessed } = await processCompanyData(
-        resultAjaxCompany,
-        searchQuery,
-        isFirstBatch,
-        minRow,
-        perPage,
-        workerId
+      const { processedCount, totalProcessed } = await withRetry(
+        () =>
+          processCompanyData(
+            resultAjaxCompany,
+            searchQuery,
+            isFirstBatch,
+            minRow,
+            perPage,
+            workerId
+          ),
+        {
+          operationName: "Process Company Data",
+          ...searchContext,
+        }
       );
 
       // Clear the response data
@@ -674,7 +782,14 @@ export async function executeSearch(searchQuery: string, workerId?: string) {
       context: searchContext,
       error,
     });
-    throw error;
+    
+    // Instead of throwing the error, we'll return a failure result
+    // This allows the worker to continue with other combinations
+    return {
+      totalCompanies: 0,
+      error: error instanceof Error ? error.message : String(error),
+      failed: true,
+    };
   }
 }
 
