@@ -1,3 +1,5 @@
+import dotenv from "dotenv";
+import path from "path";
 import axios from "axios";
 import FormData from "form-data";
 import {
@@ -30,6 +32,9 @@ import {
   HOME_URL,
   TIMEOUT,
 } from "./utils/constants.js";
+
+// Load environment variables from .env file
+dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
 async function makeRequestAndSaveCredentials(
   url: string,
@@ -673,51 +678,31 @@ export async function executeSearch(searchQuery: string, workerId?: string) {
   }
 }
 
-// Create readline interface
-const rl = readline.createInterface({ input, output });
-
-// Function to prompt for input
-const promptInput = (question: string): Promise<string> => {
-  return new Promise((resolve) => {
-    rl.question(question, resolve);
-  });
-};
-
 // Main async function to handle the flow
 async function main() {
   try {
-    // Ask for the length of combinations
-    const lengthStr = await promptInput(
-      "Enter the length of combinations to generate (1-3 recommended): "
-    );
-    const length = parseInt(lengthStr);
+    // Get values from environment variables
+    const length = parseInt(process.env.COMBINATION_LENGTH || "1");
+    const workers = parseInt(process.env.WORKERS || "1");
 
+    // Validate environment variables
     if (isNaN(length) || length < 1) {
-      Logger.error("Invalid input: Please enter a valid positive number", {
+      Logger.error("Invalid COMBINATION_LENGTH: Please set a valid positive number in .env", {
         context: {
           component: "Setup",
-          input: lengthStr,
+          input: process.env.COMBINATION_LENGTH,
         },
       });
       return;
     }
 
-    // Ask for the number of workers
-    const workersStr = await promptInput(
-      "Enter the number of parallel workers (1-8 recommended): "
-    );
-    const workers = parseInt(workersStr);
-
     if (isNaN(workers) || workers < 1) {
-      Logger.error(
-        "Invalid input: Please enter a valid positive number for workers",
-        {
-          context: {
-            component: "Setup",
-            input: workersStr,
-          },
-        }
-      );
+      Logger.error("Invalid WORKERS: Please set a valid positive number in .env", {
+        context: {
+          component: "Setup",
+          input: process.env.WORKERS,
+        },
+      });
       return;
     }
 
@@ -730,13 +715,7 @@ async function main() {
           totalCombinations: Math.pow(33, length),
         },
       });
-      const confirm = await promptInput(
-        "Are you sure you want to continue? (y/n): "
-      );
-
-      if (confirm.toLowerCase() !== "y") {
-        return;
-      }
+      // No need to prompt for confirmation since this is automated
     }
 
     // Generate all combinations
@@ -760,10 +739,7 @@ async function main() {
     const workerPromises = Array.from({ length: workers }, (_, i) => {
       const workerId = `Worker-${i}`;
       const startIndex = i * combinationsPerWorker;
-      const endIndex = Math.min(
-        (i + 1) * combinationsPerWorker,
-        totalCombinations
-      );
+      const endIndex = Math.min((i + 1) * combinationsPerWorker, totalCombinations);
       const workerCombinations = allCombinations.slice(startIndex, endIndex);
 
       Logger.info(`Initializing worker`, {
@@ -780,10 +756,7 @@ async function main() {
       return (async function processWorkerCombinations() {
         const CHUNK_SIZE = 10;
         for (let j = 0; j < workerCombinations.length; j += CHUNK_SIZE) {
-          const chunk = workerCombinations.slice(
-            j,
-            Math.min(j + CHUNK_SIZE, workerCombinations.length)
-          );
+          const chunk = workerCombinations.slice(j, Math.min(j + CHUNK_SIZE, workerCombinations.length));
           for (const combination of chunk) {
             await executeSearch(combination, workerId);
           }
@@ -818,8 +791,6 @@ async function main() {
       },
       error,
     });
-  } finally {
-    rl.close();
   }
 }
 
