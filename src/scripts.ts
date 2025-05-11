@@ -7,7 +7,7 @@ const __dirname = path.dirname(__filename);
 
 async function csv_extractor() {
     const baseDir = path.join(__dirname, 'files');
-    const outputFile = path.join(baseDir, 'all_extracted_data.csv');
+    const outputFile = path.join(baseDir, 'all_company_data.csv');
     
     // Create or clear the output file
     fs.writeFileSync(outputFile, '');
@@ -22,7 +22,7 @@ async function csv_extractor() {
     
     // Process each folder
     for (const folder of folders) {
-        const csvPath = path.join(baseDir, folder, 'extracted_data.csv');
+        const csvPath = path.join(baseDir, folder, 'company_data.csv');
         
         // Check if the CSV file exists in this folder
         if (fs.existsSync(csvPath)) {
@@ -43,7 +43,7 @@ async function csv_extractor() {
         }
     }
     
-    console.log('CSV extraction completed. All data consolidated in all_extracted_data.csv');
+    console.log('CSV extraction completed. All data consolidated in all_company_data.csv');
 }
 
 // Export the function
