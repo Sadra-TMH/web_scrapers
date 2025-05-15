@@ -6,7 +6,8 @@
     "start": "tsx src/scraper.ts",
     "build": "tsc",
     "dev": "tsx watch src/scraper.ts",
-    "csv": "tsx src/scripts.ts"
+    "csv": "tsx src/scripts.ts",
+    "preprocess": "tsx src/utils/pre_processing.ts"
   },
   "author": "",
   "license": "ISC",
@@ -14,12 +15,16 @@
   "dependencies": {
     "axios": "^1.6.7",
     "cheerio": "^1.0.0-rc.12",
+    "csv-parse": "^5.6.0",
+    "csv-stringify": "^6.5.2",
+    "date-fns-jalali": "^4.1.0-0",
     "dotenv": "^16.5.0",
     "form-data": "^4.0.0"
   },
   "devDependencies": {
-    "@types/node": "^20.11.24",
+    "@types/node": "^20.17.45",
+    "ts-node": "^10.9.2",
     "tsx": "^4.7.1",
-    "typescript": "^5.3.3"
+    "typescript": "^5.8.3"
   }
 }
